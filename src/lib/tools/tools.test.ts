@@ -12,7 +12,7 @@ describe('tools', () => {
 
   it('search_parts filters by assembly and resolves names', () => {
     expect(ofType(runTool('search_parts', { assembly: 'propulsion' }), 'part')).toHaveLength(10)
-    expect(ofType(runTool('search_parts', { query: 'star tracker' }), 'part')).toEqual(['P-ADCS-02', 'P-ADCS-03'])
+    expect((runTool('search_parts', { query: 'star tracker' }).data as { id: string }[]).map((p) => p.id)).toEqual(['P-ADCS-02', 'P-ADCS-03'])
     expect(ofType(runTool('search_parts', { query: 'propulsion' }), 'part')).toHaveLength(10)
   })
 
@@ -29,7 +29,7 @@ describe('tools', () => {
     expect(ofType(r, 'requirement')).toEqual(expect.arrayContaining(['REQ-ADCS-021', 'REQ-ADCS-023', 'REQ-ADCS-024', 'REQ-ADCS-025']))
     expect(ofType(r, 'requirement')).not.toContain('REQ-ADCS-020')
     const failed = runTool('get_requirements', { status: 'failed' })
-    expect(ofType(failed, 'requirement').sort()).toEqual(['REQ-PROP-020', 'REQ-PROP-028', 'REQ-PWR-020'])
+    expect((failed.data as { requirements: { id: string }[] }).requirements.map((r) => r.id).sort()).toEqual(['REQ-PROP-020', 'REQ-PROP-028', 'REQ-PWR-020'])
   })
 
   it('get_test_results filters by requirement and outcome', () => {
