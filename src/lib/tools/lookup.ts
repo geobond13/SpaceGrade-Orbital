@@ -79,6 +79,23 @@ export function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim() : undefined
 }
 
+/** Citation for any record id in the program, or undefined if it does not exist. */
+export function citationFor(id: string): Citation | undefined {
+  const part = db.parts.find((x) => x.id === id)
+  if (part) return cite.part(part)
+  const req = db.requirements.find((x) => x.id === id)
+  if (req) return cite.req(req)
+  const test = db.tests.find((x) => x.id === id)
+  if (test) return { type: 'test', id, label: test.name }
+  const ncr = db.nonconformances.find((x) => x.id === id)
+  if (ncr) return cite.ncr(ncr)
+  const sup = db.suppliers.find((x) => x.id === id)
+  if (sup) return cite.supplier(sup)
+  const quote = db.quotes.find((x) => x.id === id)
+  if (quote) return { type: 'quote', id, label: `${supplierById(quote.supplierId)?.name} quote` }
+  return undefined
+}
+
 /** Merge citations without duplicates, keeping first-seen order. */
 export function uniqueCitations(list: Citation[]): Citation[] {
   const seen = new Set<string>()

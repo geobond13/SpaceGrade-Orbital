@@ -18,20 +18,22 @@ Tools available to the executor:
 ${toolList}
 
 Write a short plan (2 to 5 steps) for answering the engineer's request with these tools. Each step names exactly one tool and has a distinct goal.
-Follow the engineering thread rather than stopping at the first list: for status, readiness or blocker questions go from parts or NCRs to the affected requirements and then to the test evidence behind them. If the user asks for a document, trade study or memo, the last step must be draft_document.
+Follow the engineering thread rather than stopping at the first list: for status, readiness or blocker questions go from parts or NCRs to the affected requirements and then to the test evidence behind them. Never repeat a tool unless the goals differ. If the user asks for a document, trade study or memo, the last step must be draft_document.
+Example for "What is holding up the battery?": list_nonconformances (open NCRs on the battery) → get_requirements (requirements those NCRs affect) → get_test_results (the failing evidence).
 Reply with JSON only, no prose: {"steps":[{"goal":"<what this step finds out>","tool":"<tool name>"}]}`
 
-export function executorSystem(plan: PlanStep[]): string {
+export function executorSystem(plan: PlanStep[], done: boolean[]): string {
+  const next = done.indexOf(false)
   return `You are the executor of SpaceGrade Agent. Gather the records needed to answer the engineer by calling tools.
 ${PROGRAM_CONTEXT}
 
-Plan to follow:
-${plan.map((s, i) => `${i + 1}. ${s.goal} (${s.tool})`).join('\n')}
+Plan:
+${plan.map((s, i) => `${done[i] ? '[done]' : i === next ? '[NEXT]' : '[todo]'} ${i + 1}. ${s.goal} (${s.tool})`).join('\n')}
 
 Rules:
-- Call tools to follow the plan. You may call several tools in one turn, and add calls if a result reveals something you need (for example, a part id to look up requirements or tests for).
-- Use part names or ids exactly as the tools return them.
-- When you have enough data, reply with the single word DONE and no tool calls. Do not write the final answer yourself.`
+- Call the tool for the [NEXT] step now, using ids and names exactly as earlier tool results returned them (prefer part ids like P-PROP-03).
+- search_parts finds parts only; suppliers are compared with compare_suppliers.
+- Do not repeat a call you already made. Do not write the final answer yourself.`
 }
 
 export const ANSWER_SYSTEM = `You are SpaceGrade Agent, writing the final answer for an aerospace hardware engineer.

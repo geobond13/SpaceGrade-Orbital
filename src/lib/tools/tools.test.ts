@@ -3,6 +3,7 @@ import { runTool, TOOLS } from './index'
 import { db } from './lookup'
 
 const ids = (r: { citations: { id: string }[] }) => r.citations.map((c) => c.id)
+const ofType = (r: { citations: { id: string; type: string }[] }, type: string) => r.citations.filter((c) => c.type === type).map((c) => c.id)
 
 describe('tools', () => {
   it('registers six tools with JSON-schema parameters', () => {
@@ -10,9 +11,9 @@ describe('tools', () => {
   })
 
   it('search_parts filters by assembly and resolves names', () => {
-    expect(runTool('search_parts', { assembly: 'propulsion' }).citations).toHaveLength(10)
-    expect(ids(runTool('search_parts', { query: 'star tracker' }))).toEqual(['P-ADCS-02', 'P-ADCS-03'])
-    expect(ids(runTool('search_parts', { query: 'propulsion' }))).toHaveLength(10)
+    expect(ofType(runTool('search_parts', { assembly: 'propulsion' }), 'part')).toHaveLength(10)
+    expect(ofType(runTool('search_parts', { query: 'star tracker' }), 'part')).toEqual(['P-ADCS-02', 'P-ADCS-03'])
+    expect(ofType(runTool('search_parts', { query: 'propulsion' }), 'part')).toHaveLength(10)
   })
 
   it('list_nonconformances returns the two open propulsion NCRs, both blocking', () => {
@@ -25,16 +26,16 @@ describe('tools', () => {
 
   it('get_requirements derives verification status from tests', () => {
     const r = runTool('get_requirements', { part: 'star tracker', status: 'not_verified' })
-    expect(ids(r)).toEqual(expect.arrayContaining(['REQ-ADCS-021', 'REQ-ADCS-023', 'REQ-ADCS-024', 'REQ-ADCS-025']))
-    expect(ids(r)).not.toContain('REQ-ADCS-020')
+    expect(ofType(r, 'requirement')).toEqual(expect.arrayContaining(['REQ-ADCS-021', 'REQ-ADCS-023', 'REQ-ADCS-024', 'REQ-ADCS-025']))
+    expect(ofType(r, 'requirement')).not.toContain('REQ-ADCS-020')
     const failed = runTool('get_requirements', { status: 'failed' })
-    expect(ids(failed).sort()).toEqual(['REQ-PROP-020', 'REQ-PROP-028', 'REQ-PWR-020'])
+    expect(ofType(failed, 'requirement').sort()).toEqual(['REQ-PROP-020', 'REQ-PROP-028', 'REQ-PWR-020'])
   })
 
   it('get_test_results filters by requirement and outcome', () => {
     const r = runTool('get_test_results', { requirementId: 'REQ-PROP-020' }) as { data: { outcome: string; measured: string }[] }
     expect(r.data[0]).toMatchObject({ outcome: 'fail', measured: '3.2e-4 scc/s GHe' })
-    expect(runTool('get_test_results', { outcome: 'fail' }).citations).toHaveLength(4)
+    expect(ofType(runTool('get_test_results', { outcome: 'fail' }), 'test')).toHaveLength(4)
   })
 
   it('compare_suppliers checks each quote against measurable requirements', () => {

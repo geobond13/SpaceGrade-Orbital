@@ -6,6 +6,8 @@ import { getTestResults } from './get-test-results'
 import { listNonconformances } from './list-nonconformances'
 import { compareSuppliers } from './compare-suppliers'
 import { draftDocument } from './draft-document'
+import { citationFor, uniqueCitations } from './lookup'
+import { RECORD_ID } from '@/lib/agent/citations'
 
 export const TOOLS: ToolDef[] = [searchParts, getRequirements, getTestResults, listNonconformances, compareSuppliers, draftDocument]
 
@@ -25,7 +27,10 @@ export function runTool(name: string, rawArgs: string | Record<string, unknown>)
       return { data: { error: 'Arguments were not valid JSON' }, citations: [], summary: 'invalid arguments' }
     }
   } else args = rawArgs
-  return tool.run(args)
+  const result = tool.run(args)
+  // Any record id the model can read in the result is citable, not only the primary rows.
+  const mentioned = (JSON.stringify(result.data).match(RECORD_ID) ?? []).flatMap((id) => citationFor(id) ?? [])
+  return { ...result, citations: uniqueCitations([...result.citations, ...mentioned]) }
 }
 
 export type { Citation, ToolResult } from './types'

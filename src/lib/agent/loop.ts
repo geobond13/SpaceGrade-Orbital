@@ -9,6 +9,7 @@ import { runTool, TOOL_SPECS, TOOLS, type Citation } from '@/lib/tools'
 import type { AgentEvent, PlanStep, UsageInfo } from './events'
 import { ANSWER_SYSTEM, DOCUMENT_ADDENDUM, executorSystem, PLANNER_SYSTEM } from './prompts'
 import { extractTag, validateCitations } from './citations'
+import { planProgress } from './plan-progress'
 
 type Msg = OpenAI.Chat.Completions.ChatCompletionMessageParam
 type Emit = (e: AgentEvent) => void
@@ -18,8 +19,8 @@ const reasoningOf = (m: unknown) => {
   const r = m as { reasoning_content?: string | null; reasoning?: string | null }
   return r.reasoning_content ?? r.reasoning ?? ''
 }
-// Models like to typeset ids with non-breaking hyphens (P‑PROP‑03); citations need ASCII.
-const normalizeIds = (s: string) => s.replace(/[‐‑‒–]/g, '-')
+// Models like to typeset ids with Unicode hyphens (U+2010..U+2013); citations need ASCII.
+export const normalizeIds = (s: string) => s.replace(/[‐-–]/g, '-')
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
 interface ToolLog { name: string; args: Record<string, unknown>; data: unknown }
@@ -65,17 +66,22 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   }
 
   // 2. Act
-  const messages: Msg[] = [{ role: 'system', content: executorSystem(plan) }, { role: 'user', content: question }]
+  const messages: Msg[] = [{ role: 'system', content: '' }, { role: 'user', content: question }]
   const cache = new Map<string, string>()
+  const called: string[] = []
   for (let round = 1; round <= agentConfig.caps.maxRounds; round++) {
+    const done = planProgress(plan, called)
+    // Stop as soon as the plan is covered; a separate "I'm done" round costs Nano 5-25 s of reasoning.
+    if (done.every(Boolean)) break
     if (overBudget()) { emit({ type: 'notice', message: 'Token budget reached; answering with the data gathered so far.' }); break }
+    messages[0] = { role: 'system', content: executorSystem(plan, done) }
     let role: ModelRole = 'router'
     let msg = await routeOnce(ai, role, messages, round, record, emit, signal).catch((e: unknown) => {
       emit({ type: 'notice', message: `Router error (${e instanceof Error ? e.message : 'unknown'}); falling back to the planner model.` })
       return null
     })
-    // Nano occasionally answers in prose on the first turn; give that turn to Super.
-    if (!msg || (round === 1 && !msg.tool_calls?.length)) {
+    // Nano sometimes answers in prose while plan steps remain; give that turn to Super.
+    if (!msg || !msg.tool_calls?.length) {
       role = 'planner'
       msg = await routeOnce(ai, role, messages, round, record, emit, signal)
     }
@@ -95,6 +101,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
       }
       const result = runTool(call.function.name, call.function.arguments)
       totals.toolCalls++
+      called.push(call.function.name)
       for (const c of result.citations) if (!seen.has(c.id)) seen.set(c.id, c)
       if (result.document) {
         document = result.document
@@ -159,7 +166,7 @@ async function routeOnce(
   const start = Date.now()
   // Nemotron Nano only calls tools reliably with reasoning on, so give it room to think.
   const res = await ai.chat.completions.create({
-    model: modelFor(role), max_tokens: 4000, temperature: 0.2, tools: TOOL_SPECS, tool_choice: 'auto', messages,
+    model: modelFor(role), max_tokens: 3000, temperature: 0.2, tools: TOOL_SPECS, tool_choice: 'auto', messages,
   }, { signal })
   record(`route ${round}`, role, res.usage, Date.now() - start)
   const msg = res.choices[0]?.message
