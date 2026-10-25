@@ -99,6 +99,12 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
         messages.push({ role: 'tool', tool_call_id: call.id, content: cache.get(key)! })
         continue
       }
+      const blocked = guardDocument(call.function.name, plan, called)
+      if (blocked) {
+        emit({ type: 'tool_result', callId: call.id, name: call.function.name, summary: `guardrail: ${blocked}`, citations: [], ms: 0 })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: blocked }) })
+        continue
+      }
       const result = runTool(call.function.name, call.function.arguments)
       totals.toolCalls++
       called.push(call.function.name)
@@ -166,14 +172,26 @@ async function routeOnce(
   const start = Date.now()
   // Nemotron Nano only calls tools reliably with reasoning on, so give it room to think.
   const res = await ai.chat.completions.create({
-    model: modelFor(role), max_tokens: 3000, temperature: 0.2, tools: TOOL_SPECS, tool_choice: 'auto', messages,
+    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: TOOL_SPECS, tool_choice: 'auto', messages,
   }, { signal })
   record(`route ${round}`, role, res.usage, Date.now() - start)
   const msg = res.choices[0]?.message
   if (!msg) throw new Error('empty response')
+  // A turn cut off mid-reasoning can carry a tool call with truncated or empty arguments.
+  if (role === 'router' && res.choices[0].finish_reason === 'length') throw new Error('router ran out of reasoning tokens')
   const thought = reasoningOf(msg)
   if (thought) emit({ type: 'thinking', label: `route ${round}`, model: modelFor(role), text: clip(thought, 800) })
   return msg
+}
+
+/** Documents are drafted only when planned, and only once the evidence steps before them have run. */
+export function guardDocument(tool: string, plan: PlanStep[], called: string[]): string | undefined {
+  if (tool !== 'draft_document') return undefined
+  const at = plan.findIndex((s) => s.tool === 'draft_document')
+  if (at === -1) return 'no document was requested; answer from the records instead'
+  const done = planProgress(plan, called)
+  const pending = plan.slice(0, at).filter((_, i) => !done[i])
+  return pending.length ? `finish earlier plan steps first (next: ${pending[0].tool})` : undefined
 }
 
 export function parsePlan(content: string): PlanStep[] {
@@ -184,6 +202,7 @@ export function parsePlan(content: string): PlanStep[] {
     const steps = (parsed.steps ?? [])
       .filter((s) => typeof s.goal === 'string' && typeof s.tool === 'string' && names.has(s.tool))
       .map((s) => ({ goal: s.goal as string, tool: s.tool as string }))
+      .filter((s, i, all) => i === 0 || all[i - 1].tool !== s.tool)
     if (steps.length) return steps.slice(0, 6)
   } catch { /* fall through */ }
   return [{ goal: 'Find the relevant records', tool: 'search_parts' }]

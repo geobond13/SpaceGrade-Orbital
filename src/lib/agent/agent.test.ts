@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { extractTag, validateCitations } from './citations'
-import { normalizeIds, parsePlan } from './loop'
+import { guardDocument, normalizeIds, parsePlan } from './loop'
 import { planProgress } from './plan-progress'
 import { runTool } from '@/lib/tools'
 
@@ -30,6 +30,18 @@ describe('agent helpers', () => {
   it('parses plans and drops unknown tools', () => {
     expect(parsePlan('ok {"steps":[{"goal":"a","tool":"search_parts"},{"goal":"b","tool":"hack"}]}')).toEqual([{ goal: 'a', tool: 'search_parts' }])
     expect(parsePlan('garbage')[0].tool).toBe('search_parts')
+  })
+
+  it('guards draft_document: only when planned, only after evidence steps', () => {
+    const plan = [{ goal: 'a', tool: 'search_parts' }, { goal: 'b', tool: 'compare_suppliers' }, { goal: 'c', tool: 'draft_document' }]
+    expect(guardDocument('draft_document', plan, ['search_parts'])).toContain('compare_suppliers')
+    expect(guardDocument('draft_document', plan, ['search_parts', 'compare_suppliers'])).toBeUndefined()
+    expect(guardDocument('draft_document', plan.slice(0, 2), [])).toContain('no document')
+    expect(guardDocument('search_parts', [], [])).toBeUndefined()
+  })
+
+  it('collapses consecutive duplicate plan steps', () => {
+    expect(parsePlan('{"steps":[{"goal":"a","tool":"list_nonconformances"},{"goal":"b","tool":"list_nonconformances"}]}')).toHaveLength(1)
   })
 
   it('tracks plan progress by tool call counts', () => {
