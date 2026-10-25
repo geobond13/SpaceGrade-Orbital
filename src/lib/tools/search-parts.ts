@@ -15,9 +15,12 @@ export const searchParts: ToolDef = {
   run(args) {
     const assembly = matchAssembly(args.assembly)
     const query = str(args.query)
-    let parts = query ? resolveParts(query) : db.parts
-    // "propulsion" as a query with no part-name hit means the whole assembly.
-    if (query && parts.length === 0 && matchAssembly(query)) parts = db.parts.filter((p) => p.assembly === matchAssembly(query))
+    // A bare assembly name ("propulsion", "the ADCS subsystem") means the whole assembly.
+    const bare = query?.toLowerCase().replace(/\b(the|assembly|module|subsystem|parts?)\b/g, '').trim()
+    const queryAssembly = bare ? matchAssembly(bare) : undefined
+    let parts = queryAssembly && bare === queryAssembly.toLowerCase()
+      ? db.parts.filter((p) => p.assembly === queryAssembly)
+      : query ? resolveParts(query) : db.parts
     if (assembly) parts = parts.filter((p) => p.assembly === assembly)
     const qual = str(args.qualStatus)
     if (qual) parts = parts.filter((p) => p.qualStatus === qual)
