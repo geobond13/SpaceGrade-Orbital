@@ -16,7 +16,7 @@ async function main() {
     const t0 = Date.now()
     const res = await ai.chat.completions.create({
       model,
-      max_tokens: 200,
+      max_tokens: 1500,
       messages: [{ role: 'user', content: 'In one sentence: what is a nonconformance report in aerospace QA?' }],
     })
     const u = res.usage
@@ -26,7 +26,7 @@ async function main() {
 
   const res = await ai.chat.completions.create({
     model: modelFor('router'),
-    max_tokens: 300,
+    max_tokens: 1500,
     tools: [{
       type: 'function',
       function: {

@@ -4,7 +4,7 @@
 export const agentConfig = {
   models: {
     // Planning + final reasoning. Swap to Nemotron 3 Ultra via PLANNER_MODEL.
-    planner: process.env.PLANNER_MODEL ?? 'nvidia/NVIDIA-Nemotron-3-Super-120B-A12B',
+    planner: process.env.PLANNER_MODEL ?? 'nvidia/nemotron-3-super-120b-a12b',
     // Fast tool routing + summarisation of large tool results.
     router: process.env.ROUTER_MODEL ?? 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B',
   },
