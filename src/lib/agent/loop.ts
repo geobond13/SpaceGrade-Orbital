@@ -82,8 +82,10 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
     })
     // Nano sometimes answers in prose while plan steps remain; give that turn to Super.
     if (!msg || !msg.tool_calls?.length) {
+      if (msg) emit({ type: 'notice', message: `Nano returned no tool call; ${modelFor('planner').split('/')[1]} takes step ${done.indexOf(false) + 1}.` })
       role = 'planner'
-      msg = await routeOnce(ai, role, messages, round, record, emit, signal)
+      // Force the next planned tool so a planned step is never silently skipped.
+      msg = await routeOnce(ai, role, messages, round, record, emit, signal, plan[done.indexOf(false)]?.tool)
     }
     const calls = (msg.tool_calls ?? []).filter((c): c is OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall => c.type === 'function')
     if (calls.length === 0) break
@@ -167,12 +169,13 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
 async function routeOnce(
   ai: OpenAI, role: ModelRole, messages: Msg[], round: number,
   record: (label: string, role: ModelRole, usage: OpenAI.CompletionUsage | undefined, ms: number) => void,
-  emit: Emit, signal?: AbortSignal,
+  emit: Emit, signal?: AbortSignal, forceTool?: string,
 ) {
   const start = Date.now()
   // Nemotron Nano only calls tools reliably with reasoning on, so give it room to think.
   const res = await ai.chat.completions.create({
-    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: TOOL_SPECS, tool_choice: 'auto', messages,
+    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: TOOL_SPECS, messages,
+    tool_choice: forceTool ? { type: 'function', function: { name: forceTool } } : 'auto',
   }, { signal })
   record(`route ${round}`, role, res.usage, Date.now() - start)
   const msg = res.choices[0]?.message
