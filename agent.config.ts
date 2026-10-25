@@ -13,8 +13,8 @@ export const agentConfig = {
     maxTokensPerRun: 60_000, // prompt + completion, all calls in one run
     runsPerIpPerHour: 10, // public demo rate limit
   },
-  // USD per 1M tokens, used only for the cost estimate shown in the trace.
-  // Check against the Token Factory pricing page before quoting numbers.
+  // USD per 1M tokens (Token Factory list prices, October 2026), used for
+  // the cost estimate shown in the trace.
   pricing: {
     planner: { input: 0.3, output: 0.9 },
     router: { input: 0.06, output: 0.24 },
