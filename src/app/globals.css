@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --canvas: #f5f6f8;
+  --surface: #ffffff;
+  --sunken: #eef0f3;
+  --line: #dfe3e8;
+  --ink: #111827;
+  --muted: #5b6472;
+  --faint: #8a93a1;
+  --accent: #1f5fbf;
+  --accent-soft: #e6eefb;
+  --super: #4b3fb3;
+  --super-soft: #ecebfa;
+  --nano: #2f7d32;
+  --nano-soft: #e7f3e8;
+  --ok: #2f7d32;
+  --warn: #9a6200;
+  --warn-soft: #fbf1df;
+  --bad: #b42318;
+  --bad-soft: #fdecea;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --canvas: #0e1116;
+    --surface: #161b22;
+    --sunken: #1d232c;
+    --line: #2b333e;
+    --ink: #e6e9ee;
+    --muted: #a3acb9;
+    --faint: #6f7987;
+    --accent: #6ea2f0;
+    --accent-soft: #1b2a42;
+    --super: #a79cf5;
+    --super-soft: #25213f;
+    --nano: #79c27c;
+    --nano-soft: #1b2e1d;
+    --ok: #79c27c;
+    --warn: #e2b155;
+    --warn-soft: #33270f;
+    --bad: #f0857a;
+    --bad-soft: #3a1b18;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-super: var(--super);
+  --color-super-soft: var(--super-soft);
+  --color-nano: var(--nano);
+  --color-nano-soft: var(--nano-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+/* Rendered answer and document markdown */
+.prose-sg { font-size: 0.9rem; line-height: 1.6; }
+.prose-sg p { margin: 0.5rem 0; }
+.prose-sg h1 { font-size: 1.25rem; font-weight: 600; margin: 0.25rem 0 0.75rem; }
+.prose-sg h2 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+.prose-sg h3 { font-size: 0.95rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+.prose-sg ul, .prose-sg ol { margin: 0.4rem 0 0.4rem 1.2rem; }
+.prose-sg ul { list-style: disc; }
+.prose-sg ol { list-style: decimal; }
+.prose-sg li { margin: 0.2rem 0; }
+.prose-sg strong { font-weight: 600; }
+.prose-sg code { font-family: var(--font-geist-mono); font-size: 0.8em; background: var(--sunken); padding: 0.05rem 0.3rem; border-radius: 4px; }
+.prose-sg table { display: block; overflow-x: auto; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.8rem; }
+.prose-sg th, .prose-sg td { border: 1px solid var(--line); padding: 0.35rem 0.55rem; text-align: left; vertical-align: top; }
+.prose-sg th { background: var(--sunken); font-weight: 600; }
