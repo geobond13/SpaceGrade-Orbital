@@ -43,7 +43,7 @@ function Value({ value, onOpen }: { value: unknown; onOpen: (id: string) => void
 export function RecordDrawer({ id, onOpen, onClose }: { id: string; onOpen: (id: string) => void; onClose: () => void }) {
   const found = findRecord(id)
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <aside
         className="flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-xl"
         onClick={(e) => e.stopPropagation()}

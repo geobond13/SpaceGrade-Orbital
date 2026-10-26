@@ -1,47 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #f5f6f8;
-  --surface: #ffffff;
-  --sunken: #eef0f3;
-  --line: #dfe3e8;
-  --ink: #111827;
-  --muted: #5b6472;
-  --faint: #8a93a1;
-  --accent: #1f5fbf;
-  --accent-soft: #e6eefb;
-  --super: #4b3fb3;
-  --super-soft: #ecebfa;
-  --nano: #2f7d32;
-  --nano-soft: #e7f3e8;
-  --ok: #2f7d32;
-  --warn: #9a6200;
-  --warn-soft: #fbf1df;
-  --bad: #b42318;
-  --bad-soft: #fdecea;
-}
+  /* Mission-control console: dark by design, in every color scheme. */
+  color-scheme: dark;
+  --canvas: #05080d;
+  --surface: #0b1118;
+  --sunken: #111a24;
+  --line: #1c2733;
+  --line-strong: #2a3a4b;
+  --ink: #e2e8f0;
+  --muted: #8d9bad;
+  --faint: #56657a;
+  --accent: #4cc9f0;
+  --accent-soft: #0e2a36;
+  --super: #b69cff;
+  --super-soft: #221b3d;
+  --nano: #5eead4;
+  --nano-soft: #0d2e2a;
+  --ok: #6ee7a0;
+  --warn: #f5c451;
+  --warn-soft: #2e2510;
+  --bad: #ff6b7d;
+  --bad-soft: #35121a;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #0e1116;
-    --surface: #161b22;
-    --sunken: #1d232c;
-    --line: #2b333e;
-    --ink: #e6e9ee;
-    --muted: #a3acb9;
-    --faint: #6f7987;
-    --accent: #6ea2f0;
-    --accent-soft: #1b2a42;
-    --super: #a79cf5;
-    --super-soft: #25213f;
-    --nano: #79c27c;
-    --nano-soft: #1b2e1d;
-    --ok: #79c27c;
-    --warn: #e2b155;
-    --warn-soft: #33270f;
-    --bad: #f0857a;
-    --bad-soft: #3a1b18;
-  }
+  /* Readiness status, shared by the twin, board and heatmap. */
+  --st-blocked: #ff4d6d;
+  --st-failed: #ff8f5a;
+  --st-in-progress: #f5c451;
+  --st-unverified: #5f7189;
+  --st-verified: #4ade80;
+  --st-none: #263241;
 }
 
 @theme inline {
@@ -49,6 +37,7 @@
   --color-surface: var(--surface);
   --color-sunken: var(--sunken);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
@@ -70,6 +59,32 @@
 body {
   background: var(--canvas);
   color: var(--ink);
+}
+
+/* Console chrome */
+.panel-title {
+  font-family: var(--font-geist-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.grid-backdrop {
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(ellipse at 50% 45%, rgba(76, 201, 240, 0.09), transparent 60%),
+    linear-gradient(rgba(76, 201, 240, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(76, 201, 240, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 32px 32px, 32px 32px;
+}
+@keyframes sg-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
+@keyframes sg-rise { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
+@keyframes sg-ripple { 0% { box-shadow: 0 0 0 0 var(--ripple, var(--accent)) } 100% { box-shadow: 0 0 0 10px transparent } }
+.sg-pulse { animation: sg-pulse 1.4s ease-in-out infinite; }
+.sg-rise { animation: sg-rise 0.35s ease-out both; }
+.sg-ripple { animation: sg-ripple 0.9s ease-out 2; }
+@media (prefers-reduced-motion: reduce) {
+  .sg-pulse, .sg-rise, .sg-ripple { animation: none; }
 }
 
 /* Rendered answer and document markdown */

@@ -2,9 +2,14 @@
 
 import type { AgentEvent, PlanStep, UsageInfo } from '@/lib/agent/events'
 import { planProgress } from '@/lib/agent/plan-progress'
-import type { Run } from './agent-app'
+import type { Run } from './use-agent-runs'
 
 const shortModel = (m: string) => m.split('/').pop() ?? m
+
+function Stamp({ run, i }: { run: Run; i: number }) {
+  const t = ((run.stamps[i] ?? run.startedAt) - run.startedAt) / 1000
+  return <span className="w-12 shrink-0 font-mono text-[0.65rem] tabular-nums text-faint">T+{t.toFixed(1).padStart(4, '0')}</span>
+}
 
 function ModelTag({ model }: { model: string }) {
   const nano = /nano/i.test(model)
@@ -48,7 +53,7 @@ function Plan({ steps, called, answered }: { steps: PlanStep[]; called: string[]
 
 function Thinking({ e }: { e: Extract<AgentEvent, { type: 'thinking' }> }) {
   return (
-    <details className="group rounded-lg border border-line bg-surface px-3 py-2">
+    <details className="group rounded-md border border-line bg-surface px-2.5 py-1.5">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted">
         <ModelTag model={e.model} /> reasoning · {e.label}
         <span className="ml-auto text-faint group-open:hidden">show</span>
@@ -61,9 +66,9 @@ function Thinking({ e }: { e: Extract<AgentEvent, { type: 'thinking' }> }) {
 export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id: string) => void }) {
   if (!run) {
     return (
-      <div className="p-5 text-sm text-muted">
-        <h2 className="mb-2 text-sm font-semibold text-ink">Agent trace</h2>
-        <p>Ask a question. The plan, every tool call with its arguments, the model that made it, and the tokens and cost of each step will appear here as they happen.</p>
+      <div className="p-4 text-sm text-muted">
+        <h2 className="panel-title mb-2">Telemetry</h2>
+        <p className="font-mono text-xs leading-relaxed">Ask a question. The plan, every tool call with its arguments, the model that made it, and the tokens and cost of each step will appear here as they happen.</p>
       </div>
     )
   }
@@ -81,7 +86,7 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
     <div className="space-y-4 p-4">
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Plan</h2>
+          <h2 className="panel-title">Flight plan</h2>
           {start?.type === 'run_start' && (
             <span className="flex gap-1"><ModelTag model={start.models.planner} /><ModelTag model={start.models.router} /></span>
           )}
@@ -90,16 +95,16 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
       </section>
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold">Steps</h2>
+        <h2 className="panel-title mb-2">Telemetry</h2>
         <ol className="space-y-2">
           {ev.map((e, i) => {
-            if (e.type === 'thinking') return <li key={i}><Thinking e={e} /></li>
-            if (e.type === 'notice') return <li key={i} className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">{e.message}</li>
-            if (e.type === 'error') return <li key={i} className="rounded-lg bg-bad-soft px-3 py-2 text-xs text-bad">{e.message}</li>
+            if (e.type === 'thinking') return <li key={i} className="sg-rise flex gap-2"><Stamp run={run} i={i} /><div className="min-w-0 flex-1"><Thinking e={e} /></div></li>
+            if (e.type === 'notice') return <li key={i} className="sg-rise flex gap-2"><Stamp run={run} i={i} /><p className="flex-1 rounded-md border border-warn/30 bg-warn-soft px-2.5 py-1.5 font-mono text-[0.7rem] text-warn">{e.message}</p></li>
+            if (e.type === 'error') return <li key={i} className="sg-rise flex gap-2"><Stamp run={run} i={i} /><p className="flex-1 rounded-md border border-bad/30 bg-bad-soft px-2.5 py-1.5 font-mono text-[0.7rem] text-bad">{e.message}</p></li>
             if (e.type === 'usage') {
               return (
-                <li key={i} className="flex items-center gap-2 px-1 text-xs text-muted">
-                  <ModelTag model={e.usage.model} /> {e.usage.label} <span className="ml-auto"><UsageLine u={e.usage} /></span>
+                <li key={i} className="sg-rise flex items-center gap-2 font-mono text-[0.7rem] text-muted">
+                  <Stamp run={run} i={i} /><ModelTag model={e.usage.model} /> {e.usage.label} <span className="ml-auto"><UsageLine u={e.usage} /></span>
                 </li>
               )
             }
@@ -107,9 +112,11 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
               const result = results.find((r) => r.callId === e.callId)
               const guarded = result?.summary.startsWith('guardrail')
               return (
-                <li key={i} className="rounded-lg border border-line bg-surface px-3 py-2">
+                <li key={i} className="sg-rise flex gap-2">
+                  <Stamp run={run} i={i} />
+                  <div className={`min-w-0 flex-1 rounded-md border bg-surface px-2.5 py-2 ${result ? 'border-line' : 'border-accent/60 shadow-[0_0_12px_-4px_var(--accent)]'}`}>
                   <div className="flex items-center gap-2">
-                    <code className="font-mono text-[0.8rem] font-semibold">{e.name}</code>
+                    <code className="font-mono text-[0.78rem] font-semibold text-accent">{e.name}</code>
                     <span className="text-[0.68rem] text-faint">round {e.round} · chosen by</span>
                     <ModelTag model={e.model} />
                     {result && <span className="ml-auto font-mono text-[0.68rem] text-faint">{result.ms} ms</span>}
@@ -117,7 +124,7 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
                   <pre className="mt-1.5 overflow-x-auto rounded bg-sunken px-2 py-1 font-mono text-[0.7rem] text-muted">{JSON.stringify(e.args)}</pre>
                   {result ? (
                     <div className="mt-1.5">
-                      <p className={`text-xs ${guarded ? 'text-warn' : 'text-ink'}`}>→ {result.summary}</p>
+                      <p className={`font-mono text-[0.7rem] ${guarded ? 'text-warn' : 'text-ink'}`}>→ {result.summary}</p>
                       {result.citations.length > 0 && (
                         <p className="mt-1 flex flex-wrap gap-1">
                           {result.citations.slice(0, 12).map((c) => (
@@ -127,28 +134,29 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
                         </p>
                       )}
                     </div>
-                  ) : <p className="mt-1.5 text-xs text-muted">running…</p>}
+                  ) : <p className="sg-pulse mt-1.5 font-mono text-[0.7rem] text-accent">▸ acquiring…</p>}
+                  </div>
                 </li>
               )
             }
-            if (e.type === 'document') return <li key={i} className="px-1 text-xs text-muted">Document drafted: <span className="text-ink">{e.title}</span></li>
+            if (e.type === 'document') return <li key={i} className="sg-rise flex gap-2 font-mono text-[0.7rem] text-muted"><Stamp run={run} i={i} />Document drafted: <span className="text-ink">{e.title}</span></li>
             if (e.type === 'answer') {
               return (
-                <li key={i} className="px-1 text-xs text-muted">
-                  Answer cites {e.citations.length} record{e.citations.length === 1 ? '' : 's'}
-                  {e.unknownIds.length > 0 ? <span className="text-bad"> · {e.unknownIds.length} id(s) not returned by any tool: {e.unknownIds.join(', ')}</span> : <span className="text-ok"> · all citations verified against tool output</span>}
+                <li key={i} className="sg-rise flex gap-2 font-mono text-[0.7rem] text-muted">
+                  <Stamp run={run} i={i} /><span>Answer cites {e.citations.length} record{e.citations.length === 1 ? '' : 's'}
+                  {e.unknownIds.length > 0 ? <span className="text-bad"> · {e.unknownIds.length} id(s) not returned by any tool: {e.unknownIds.join(', ')}</span> : <span className="text-ok"> · all citations verified against tool output</span>}</span>
                 </li>
               )
             }
             return null
           })}
-          {run.status === 'running' && <li className="px-1 text-xs text-muted">working…</li>}
+          {run.status === 'running' && <li className="sg-pulse pl-14 font-mono text-[0.7rem] text-accent">▮</li>}
         </ol>
       </section>
 
       {done?.type === 'done' && (
-        <section className="rounded-lg border border-line bg-surface px-3 py-2.5 text-xs">
-          <h2 className="mb-1 text-sm font-semibold">Run totals</h2>
+        <section className="rounded-md border border-line bg-surface px-3 py-2.5 text-xs">
+          <h2 className="panel-title mb-1.5">Run totals</h2>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono">
             <dt className="text-muted">Tokens</dt><dd>{(done.totals.promptTokens + done.totals.completionTokens).toLocaleString()}</dd>
             <dt className="text-muted">Tool calls</dt><dd>{done.totals.toolCalls}</dd>

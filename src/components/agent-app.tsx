@@ -1,22 +1,20 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import type { AgentEvent } from '@/lib/agent/events'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { extractTag } from '@/lib/agent/citations'
 import { DEMO_QUERIES } from '@/lib/demo-queries'
-import { programData } from '@/data/program'
+import { computeReadiness, type Overrides } from '@/lib/readiness'
+import { deriveFocus, EMPTY_FOCUS, partsForRecord } from '@/lib/focus'
+import { db } from '@/lib/tools/lookup'
 import { Markdown } from './markdown'
 import { CitationChip } from './citation-chip'
 import { TracePane } from './trace-pane'
 import { RecordDrawer } from './record-drawer'
 import { DocumentView } from './document-view'
-
-export interface Run {
-  question: string
-  events: AgentEvent[]
-  answerRaw: string
-  status: 'running' | 'done' | 'error'
-}
+import { HeaderBar } from './header-bar'
+import { AssemblyBoard } from './assembly-board'
+import { TwinPanel } from './twin-panel'
+import { useAgentRuns, type Run } from './use-agent-runs'
 
 function statusLine(run: Run): string {
   const last = [...run.events].reverse().find((e) => e.type !== 'usage' && e.type !== 'thinking')
@@ -29,109 +27,96 @@ function statusLine(run: Run): string {
 }
 
 export function AgentApp() {
-  const [runs, setRuns] = useState<Run[]>([])
-  const [selected, setSelected] = useState(0)
+  const { runs, selected, setSelected, busy, ask } = useAgentRuns()
   const [input, setInput] = useState('')
   const [record, setRecord] = useState<string | null>(null)
   const [doc, setDoc] = useState<{ title: string; markdown: string } | null>(null)
+  /** Parts the user pinned by opening a record or an assembly; overrides the agent's focus. */
+  const [pinned, setPinned] = useState<string[] | null>(null)
+  const [overrides] = useState<Overrides>({})
   const chatEnd = useRef<HTMLDivElement>(null)
-  const busy = runs.some((r) => r.status === 'running')
+
+  const baseline = useMemo(() => computeReadiness(), [])
+  const readiness = useMemo(() => computeReadiness(overrides), [overrides])
+  const run = runs[selected]
+  const focus = useMemo(() => (run ? deriveFocus(run.events) : EMPTY_FOCUS), [run])
+  const framed = pinned ?? focus.activePartIds
 
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [runs])
 
-  async function ask(question: string) {
+  function submit(question: string) {
     if (!question.trim() || busy) return
     setInput('')
-    const index = runs.length
-    setSelected(index)
-    setRuns((rs) => [...rs, { question, events: [], answerRaw: '', status: 'running' }])
-    const update = (fn: (r: Run) => Run) => setRuns((rs) => rs.map((r, i) => (i === index ? fn(r) : r)))
-    try {
-      const res = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
-      if (!res.ok || !res.body) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        update((r) => ({ ...r, status: 'error', events: [...r.events, { type: 'error', message: err.error ?? `Request failed (${res.status})` }] }))
-        return
-      }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      for (;;) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        const parsed = lines.filter(Boolean).map((l) => JSON.parse(l) as AgentEvent)
-        if (parsed.length === 0) continue
-        update((r) => {
-          let { answerRaw, status } = r
-          const events = [...r.events]
-          for (const e of parsed) {
-            if (e.type === 'answer_delta') { answerRaw += e.text; continue }
-            if (e.type === 'done') status = 'done'
-            if (e.type === 'error') status = 'error'
-            events.push(e)
-          }
-          return { ...r, events, answerRaw, status }
-        })
-      }
-      update((r) => (r.status === 'running' ? { ...r, status: 'done' } : r))
-    } catch (err) {
-      update((r) => ({ ...r, status: 'error', events: [...r.events, { type: 'error', message: err instanceof Error ? err.message : 'Network error' }] }))
-    }
+    setPinned(null)
+    void ask(question)
+  }
+
+  function openRecord(id: string) {
+    setRecord(id)
+    const parts = partsForRecord(id)
+    if (parts.length) setPinned(parts)
+  }
+
+  function selectAssembly(assembly: string) {
+    const roots = db.parts.filter((p) => p.assembly === assembly && !p.parentId).map((p) => p.id)
+    setPinned(roots.length ? roots : null)
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-4 py-3 sm:px-6">
-        <h1 className="text-base font-semibold">SpaceGrade Agent</h1>
-        <p className="text-sm text-muted">{programData.program.name} · {programData.program.phase}</p>
-        <p className="ml-auto text-xs text-faint">Synthetic demo data · NVIDIA Nemotron on Nebius Token Factory</p>
-      </header>
+    <div className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
+      <HeaderBar runs={runs} focus={focus} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,42%)] lg:grid-rows-1 lg:grid-cols-[minmax(0,1fr)_440px]">
-        <main className="flex min-h-0 flex-col">
-          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+      <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)_400px]">
+        <aside className="order-2 space-y-5 border-t border-line bg-surface/40 p-4 lg:order-1 lg:overflow-y-auto lg:border-t-0 lg:border-r" aria-label="Program status">
+          <AssemblyBoard readiness={readiness} baseline={baseline} focus={focus} onSelectAssembly={selectAssembly} onOpenRecord={openRecord} />
+        </aside>
+
+        <main className="order-1 flex flex-col lg:order-2 lg:min-h-0">
+          <div className="h-[300px] shrink-0 border-b border-line sm:h-[380px] lg:h-auto lg:min-h-[280px] lg:flex-[1.25]">
+            <TwinPanel readiness={readiness} focus={focus} framed={framed} onSelectPart={openRecord} />
+          </div>
+
+          <div className="px-4 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto sm:px-5">
             {runs.length === 0 && (
-              <div className="mx-auto max-w-2xl py-6">
-                <h2 className="text-xl font-semibold">Ask about your hardware program</h2>
-                <p className="mt-2 text-sm text-muted">
-                  The agent plans with Nemotron Super, routes tool calls with Nemotron Nano across parts, requirements, test records,
-                  nonconformances and supplier quotes for the {programData.program.name} smallsat, and answers with every claim cited to a record.
+              <div className="mx-auto max-w-2xl">
+                <h2 className="panel-title">Ask the program</h2>
+                <p className="mt-1.5 text-sm text-muted">
+                  Nemotron Super plans, Nemotron Nano routes tool calls across parts, requirements, test records, NCRs and supplier quotes.
+                  Watch the twin follow the agent. Every claim cites a record.
                 </p>
-                <div className="mt-5 grid gap-2">
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   {DEMO_QUERIES.map((q) => (
-                    <button key={q.label} type="button" onClick={() => ask(q.question)} className="rounded-lg border border-line bg-surface px-4 py-3 text-left hover:border-accent">
-                      <span className="block text-xs text-muted">{q.label}</span>
-                      <span className="text-sm">{q.question}</span>
+                    <button key={q.label} type="button" onClick={() => submit(q.question)}
+                      className="rounded-md border border-line bg-surface px-3 py-2.5 text-left transition-colors hover:border-accent">
+                      <span className="block font-mono text-[0.68rem] uppercase tracking-wider text-accent">{q.label}</span>
+                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{q.question}</span>
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="mx-auto max-w-3xl space-y-6">
-              {runs.map((run, i) => {
-                const answer = run.events.find((e) => e.type === 'answer')
-                const document = run.events.filter((e) => e.type === 'document').at(-1)
-                const partial = extractTag(run.answerRaw, 'answer')
+            <div className="mx-auto max-w-3xl space-y-5">
+              {runs.map((r, i) => {
+                const answer = r.events.find((e) => e.type === 'answer')
+                const document = r.events.filter((e) => e.type === 'document').at(-1)
+                const partial = extractTag(r.answerRaw, 'answer')
                 return (
-                  <div key={i} className="space-y-3">
+                  <div key={i} className="space-y-2.5">
                     <div className="flex justify-end">
-                      <p className="max-w-[85%] rounded-xl bg-ink px-4 py-2.5 text-sm text-surface">{run.question}</p>
+                      <p className="max-w-[85%] rounded-md border border-line-strong bg-sunken px-3.5 py-2 text-sm">{r.question}</p>
                     </div>
                     <div
-                      className={`rounded-xl border bg-surface px-4 py-3 sm:px-5 ${selected === i ? 'border-accent/50' : 'border-line'}`}
+                      className={`rounded-md border bg-surface px-4 py-3 ${selected === i ? 'border-accent/50' : 'border-line'}`}
                       onClick={() => setSelected(i)}
                     >
                       {answer?.type === 'answer' ? (
                         <>
-                          <Markdown text={answer.markdown} onOpenRecord={setRecord} unknownIds={answer.unknownIds} />
+                          <Markdown text={answer.markdown} onOpenRecord={openRecord} unknownIds={answer.unknownIds} />
                           {document?.type === 'document' && (
-                            <button type="button" onClick={() => setDoc(document)} className="mt-3 flex w-full items-center justify-between rounded-lg border border-line bg-sunken px-4 py-3 text-left hover:border-accent">
+                            <button type="button" onClick={() => setDoc(document)} className="mt-3 flex w-full items-center justify-between rounded-md border border-line bg-sunken px-4 py-3 text-left hover:border-accent">
                               <span>
-                                <span className="block text-xs text-muted">Generated document</span>
+                                <span className="block font-mono text-[0.68rem] uppercase tracking-wider text-muted">Generated document</span>
                                 <span className="text-sm font-medium">{document.title}</span>
                               </span>
                               <span className="text-sm text-accent">Open</span>
@@ -139,21 +124,21 @@ export function AgentApp() {
                           )}
                           {answer.citations.length > 0 && (
                             <div className="mt-3 border-t border-line pt-2.5">
-                              <p className="mb-1.5 text-xs text-muted">Sources ({answer.citations.length})</p>
+                              <p className="panel-title mb-1.5">Sources ({answer.citations.length})</p>
                               <div className="flex flex-wrap gap-1">
-                                {answer.citations.map((c) => <CitationChip key={c.id} id={c.id} label={c.label} onClick={() => setRecord(c.id)} />)}
+                                {answer.citations.map((c) => <CitationChip key={c.id} id={c.id} label={c.label} onClick={() => openRecord(c.id)} />)}
                               </div>
                             </div>
                           )}
                         </>
-                      ) : run.status === 'error' ? (
-                        <p className="text-sm text-bad">{run.events.filter((e) => e.type === 'error').map((e) => (e.type === 'error' ? e.message : '')).join(' ')}</p>
+                      ) : r.status === 'error' ? (
+                        <p className="text-sm text-bad">{r.events.filter((e) => e.type === 'error').map((e) => (e.type === 'error' ? e.message : '')).join(' ')}</p>
                       ) : (
                         <>
-                          <p className="flex items-center gap-2 text-sm text-muted">
-                            <span className="size-2 animate-pulse rounded-full bg-accent" /> {statusLine(run)}
+                          <p className="flex items-center gap-2 font-mono text-xs text-accent">
+                            <span className="sg-pulse size-2 rounded-full bg-accent" /> {statusLine(r)}
                           </p>
-                          {partial && <div className="mt-2"><Markdown text={partial} onOpenRecord={setRecord} /></div>}
+                          {partial && <div className="mt-2"><Markdown text={partial} onOpenRecord={openRecord} /></div>}
                         </>
                       )}
                     </div>
@@ -164,32 +149,29 @@ export function AgentApp() {
             </div>
           </div>
 
-          <form
-            className="border-t border-line bg-surface px-4 py-3 sm:px-6"
-            onSubmit={(e) => { e.preventDefault(); void ask(input) }}
-          >
+          <form className="border-t border-line bg-surface px-4 py-3 sm:px-5" onSubmit={(e) => { e.preventDefault(); submit(input) }}>
             <div className="mx-auto flex max-w-3xl gap-2">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask about parts, requirements, tests, NCRs or suppliers…"
                 maxLength={1000}
-                className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-3 py-2 text-sm outline-none focus:border-accent"
+                className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-3 py-2 text-sm outline-none focus:border-accent"
               />
-              <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40">
-                {busy ? 'Running…' : 'Ask'}
+              <button type="submit" disabled={busy || !input.trim()} className="rounded-md bg-accent px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-canvas disabled:opacity-40">
+                {busy ? 'Running' : 'Transmit'}
               </button>
             </div>
           </form>
         </main>
 
-        <aside className="min-h-0 overflow-y-auto border-t border-line bg-canvas lg:border-t-0 lg:border-l" aria-label="Agent trace">
-          <TracePane run={runs[selected]} onOpenRecord={setRecord} />
+        <aside className="order-3 border-t border-line bg-surface/40 lg:overflow-y-auto lg:border-t-0 lg:border-l" aria-label="Agent trace">
+          <TracePane run={run} onOpenRecord={openRecord} />
         </aside>
       </div>
 
-      {doc && <DocumentView title={doc.title} markdown={doc.markdown} onOpenRecord={setRecord} onClose={() => setDoc(null)} />}
-      {record && <RecordDrawer id={record} onOpen={setRecord} onClose={() => setRecord(null)} />}
+      {doc && <DocumentView title={doc.title} markdown={doc.markdown} onOpenRecord={openRecord} onClose={() => setDoc(null)} />}
+      {record && <RecordDrawer id={record} onOpen={openRecord} onClose={() => setRecord(null)} />}
     </div>
   )
 }

@@ -21,7 +21,7 @@ export function DocumentView({ title, markdown, onOpenRecord, onClose }: { title
     } catch { /* clipboard blocked */ }
   }
   return (
-    <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:p-8" onClick={onClose}>
+    <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-4 sm:p-8" onClick={onClose}>
       <article className="w-full max-w-4xl rounded-xl border border-line bg-surface shadow-xl" onClick={(e) => e.stopPropagation()}>
         <header className="sticky top-0 flex flex-wrap items-center justify-between gap-2 rounded-t-xl border-b border-line bg-surface px-5 py-3">
           <p className="text-sm text-muted">Generated document · every id links to its record</p>
