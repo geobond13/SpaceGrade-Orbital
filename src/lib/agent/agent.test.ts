@@ -50,3 +50,11 @@ describe('agent helpers', () => {
     expect(planProgress(plan, ['search_parts', 'get_requirements', 'search_parts'])).toEqual([true, true, true])
   })
 })
+
+describe('tool-name citations', () => {
+  it('strips bracketed tool names but keeps record ids', async () => {
+    const { stripToolCitations } = await import('./loop')
+    const { FLIGHT_TOOLS } = await import('@/lib/tools/flight')
+    expect(stripToolCitations('Burn executed [propose_action checks]. Heater slow [NCR-002].', FLIGHT_TOOLS)).toBe('Burn executed. Heater slow [NCR-002].')
+  })
+})

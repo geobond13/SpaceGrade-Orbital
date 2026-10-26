@@ -68,18 +68,26 @@ export const getTelemetry: ToolDef = {
         const leak = leakFromSlope(fit.slope * 1440)
         const day = dayDeltaVBelowRequirement(leak)
         out.equivalentHeliumLeakSccs = Number(leak.toExponential(2))
-        out.projection = {
-          deltaVAtEndOfLifeMs: round(deltaVAtEndOfLife(5 * 365, leak).deltaVMs, 0),
-          requiredMs: TANK.requiredDeltaVMs, requirement: 'REQ-SYS-002',
-          missionDayDeltaVLost: day ?? 'not within 5 years',
-          missionDayNow: Math.floor(s.missionDay + ctx.t / 1440),
+        const today = Math.floor(s.missionDay + ctx.t / 1440)
+        out.projectionIfLeakContinues = {
+          note: 'Leaked helium cannot push propellant out: below 100 psia feed pressure the remaining propellant is stranded.',
+          deltaVAvailableAtEndOfLifeMs: round(deltaVAtEndOfLife(5 * 365, leak).deltaVMs, 0),
+          deltaVBudgetMs: TANK.deltaVBudgetMs, deltaVRequiredMs: TANK.requiredDeltaVMs, requirement: 'REQ-SYS-002',
+          missionDayNow: today,
+          missionDayRequirementLost: day ?? null,
+          daysUntilRequirementLost: day !== undefined ? day - today : null,
         }
       }
       if (c.unit === 'V' && c.specModel) {
         out.residualAtEclipseEnds = s.eclipses.filter((e) => e.end <= ctx.t && e.end >= from)
           .map((e) => ({ eclipseEnd: rel(e.end), residualV: round(c.value(e.end - 0.5, ctx.actions) - c.specModel!(e.end - 0.5, ctx.actions), 3) }))
       }
-      if (c.id === 'TM-CONJ-01') out.conjunction = { id: CONJUNCTION_EVENT.cdm, object: CONJUNCTION_EVENT.object, closestApproach: rel(CONJUNCTION_EVENT.tca) }
+      if (c.id.startsWith('TM-CONJ')) {
+        out.conjunction = {
+          id: CONJUNCTION_EVENT.cdm, object: CONJUNCTION_EVENT.object, closestApproach: rel(CONJUNCTION_EVENT.tca),
+          avoidanceChain: 'An avoidance burn uses the 1 N thrusters (P-PROP-04). Each needs its catalyst bed preheated to 315 °C (P-PROP-05, REQ-PROP-028) before it can fire, so burn timing depends on that heater.',
+        }
+      }
       out.samples = pts.filter((_, i) => i % 24 === 0 || i === pts.length - 1).map((p) => [Math.round(p.t), round(p.v, c.decimals)])
       return out
     })
@@ -152,7 +160,8 @@ export const getContactWindows: ToolDef = {
   },
 }
 
-const KINDS = Object.keys(ACTION_CLASSES) as ActionKind[]
+// Flight NCRs go through draft_flight_ncr, so they are not offered here.
+const KINDS = (Object.keys(ACTION_CLASSES) as ActionKind[]).filter((k) => k !== 'FLIGHT_NCR_DRAFT')
 
 export const proposeAction: ToolDef = {
   name: 'propose_action',

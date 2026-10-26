@@ -1,5 +1,6 @@
 import type { Citation } from '@/lib/tools'
 import type { ModelRole } from '../../../agent.config'
+import type { Decision } from '@/lib/flight/autonomy'
 
 export interface PlanStep { goal: string; tool: string }
 
@@ -25,5 +26,6 @@ export type AgentEvent =
   | { type: 'answer'; markdown: string; citations: Citation[]; unknownIds: string[] }
   | { type: 'usage'; usage: UsageInfo }
   | { type: 'notice'; message: string }
+  | { type: 'decision'; callId: string; decision: Decision }
   | { type: 'done'; totals: { promptTokens: number; completionTokens: number; costUsd: number; ms: number; toolCalls: number } }
   | { type: 'error'; message: string }

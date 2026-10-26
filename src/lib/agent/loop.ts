@@ -5,9 +5,9 @@
 import type OpenAI from 'openai'
 import { agentConfig, type ModelRole } from '../../../agent.config'
 import { costUsd, modelFor, nebius } from '@/lib/nebius'
-import { runTool, TOOL_SPECS, TOOLS, type Citation } from '@/lib/tools'
+import { runTool, specsFor, TOOLS, type Citation, type ToolDef } from '@/lib/tools'
 import type { AgentEvent, PlanStep, UsageInfo } from './events'
-import { ANSWER_SYSTEM, DOCUMENT_ADDENDUM, executorSystem, PLANNER_SYSTEM } from './prompts'
+import { answerSystem, DOCUMENT_ADDENDUM, executorSystem, plannerSystem, PROGRAM_MODE, type AgentMode } from './prompts'
 import { extractTag, validateCitations } from './citations'
 import { planProgress } from './plan-progress'
 
@@ -21,15 +21,21 @@ const reasoningOf = (m: unknown) => {
 }
 // Models like to typeset ids with Unicode hyphens (U+2010..U+2013); citations need ASCII.
 export const normalizeIds = (s: string) => s.replace(/[‐-–]/g, '-')
+/** Models sometimes "cite" a tool, e.g. [propose_action checks]; tools are not sources, so drop those brackets. */
+export const stripToolCitations = (s: string, tools: ToolDef[]) =>
+  tools.reduce((text, t) => text.replace(new RegExp(`\\s?\\[${t.name}[^\\]]*\\]`, 'g'), ''), s)
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
 interface ToolLog { name: string; args: Record<string, unknown>; data: unknown }
 
-export async function runAgent(question: string, emit: Emit, signal?: AbortSignal): Promise<void> {
+export async function runAgent(question: string, emit: Emit, signal?: AbortSignal, mode: AgentMode = PROGRAM_MODE): Promise<void> {
   const ai = nebius()
+  const specs = specsFor(mode.tools)
+  // Actions the autonomy policy executes during the run are visible to later tool calls.
+  const ctx = mode.ctx && { ...mode.ctx, actions: [...mode.ctx.actions] }
   const t0 = Date.now()
   const totals = { promptTokens: 0, completionTokens: 0, costUsd: 0, toolCalls: 0 }
-  const seen = new Map<string, Citation>()
+  const seen = new Map<string, Citation>((mode.seed ?? []).map((c) => [c.id, c]))
   const toolLog: ToolLog[] = []
   let document: { title: string; markdown: string } | undefined
 
@@ -55,13 +61,13 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
     const start = Date.now()
     const res = await ai.chat.completions.create({
       model: modelFor('planner'), max_tokens: 2000, temperature: 0.2,
-      messages: [{ role: 'system', content: PLANNER_SYSTEM }, { role: 'user', content: question }],
+      messages: [{ role: 'system', content: plannerSystem(mode) }, { role: 'user', content: question }],
     }, { signal })
     record('plan', 'planner', res.usage, Date.now() - start)
     const msg = res.choices[0]?.message
     const thought = reasoningOf(msg)
     if (thought) emit({ type: 'thinking', label: 'plan', model: modelFor('planner'), text: clip(thought, 1200) })
-    plan = parsePlan(msg?.content ?? '')
+    plan = parsePlan(msg?.content ?? '', mode.tools, mode.fallbackTool)
     emit({ type: 'plan', steps: plan })
   }
 
@@ -74,9 +80,9 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
     // Stop as soon as the plan is covered; a separate "I'm done" round costs Nano 5-25 s of reasoning.
     if (done.every(Boolean)) break
     if (overBudget()) { emit({ type: 'notice', message: 'Token budget reached; answering with the data gathered so far.' }); break }
-    messages[0] = { role: 'system', content: executorSystem(plan, done) }
+    messages[0] = { role: 'system', content: executorSystem(plan, done, mode) }
     let role: ModelRole = 'router'
-    let msg = await routeOnce(ai, role, messages, round, record, emit, signal).catch((e: unknown) => {
+    let msg = await routeOnce(ai, role, specs, messages, round, record, emit, signal).catch((e: unknown) => {
       emit({ type: 'notice', message: `Router error (${e instanceof Error ? e.message : 'unknown'}); falling back to the planner model.` })
       return null
     })
@@ -85,7 +91,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
       if (msg) emit({ type: 'notice', message: `Nano returned no tool call; ${modelFor('planner').split('/')[1]} takes step ${done.indexOf(false) + 1}.` })
       role = 'planner'
       // Force the next planned tool so a planned step is never silently skipped.
-      msg = await routeOnce(ai, role, messages, round, record, emit, signal, plan[done.indexOf(false)]?.tool)
+      msg = await routeOnce(ai, role, specs, messages, round, record, emit, signal, plan[done.indexOf(false)]?.tool)
     }
     const calls = (msg.tool_calls ?? []).filter((c): c is OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall => c.type === 'function')
     if (calls.length === 0) break
@@ -107,13 +113,17 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: blocked }) })
         continue
       }
-      const result = runTool(call.function.name, call.function.arguments)
+      const result = runTool(call.function.name, call.function.arguments, { tools: mode.tools, ctx })
       totals.toolCalls++
       called.push(call.function.name)
       for (const c of result.citations) if (!seen.has(c.id)) seen.set(c.id, c)
       if (result.document) {
         document = result.document
         emit({ type: 'document', ...result.document })
+      }
+      if (result.decision) {
+        emit({ type: 'decision', callId: call.id, decision: result.decision })
+        if (result.decision.tier === 'auto' && ctx) ctx.actions.push({ kind: result.decision.kind, t: ctx.t, params: result.decision.params })
       }
       toolLog.push({ name: call.function.name, args, data: result.data })
       const content = clip(JSON.stringify(result.data), TOOL_RESULT_CHARS)
@@ -128,7 +138,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   const stream = await ai.chat.completions.create({
     model: modelFor('planner'), max_tokens: 8000, temperature: 0.2, stream: true, stream_options: { include_usage: true },
     messages: [
-      { role: 'system', content: ANSWER_SYSTEM + (document ? DOCUMENT_ADDENDUM : '') },
+      { role: 'system', content: answerSystem(mode) + (document ? DOCUMENT_ADDENDUM : '') },
       { role: 'user', content: answerInput(question, toolLog, document) },
     ],
   }, { signal })
@@ -148,7 +158,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   record('answer', 'planner', usage, Date.now() - start)
   if (thought) emit({ type: 'thinking', label: 'answer', model: modelFor('planner'), text: clip(thought, 1200) })
 
-  raw = normalizeIds(raw)
+  raw = stripToolCitations(normalizeIds(raw), mode.tools)
   const answer = extractTag(raw, 'answer') ?? raw.replace(/<\/?[a-z_]+>/g, '').trim()
   let fullText = answer
   if (document) {
@@ -167,14 +177,14 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
 }
 
 async function routeOnce(
-  ai: OpenAI, role: ModelRole, messages: Msg[], round: number,
+  ai: OpenAI, role: ModelRole, specs: OpenAI.Chat.Completions.ChatCompletionTool[], messages: Msg[], round: number,
   record: (label: string, role: ModelRole, usage: OpenAI.CompletionUsage | undefined, ms: number) => void,
   emit: Emit, signal?: AbortSignal, forceTool?: string,
 ) {
   const start = Date.now()
   // Nemotron Nano only calls tools reliably with reasoning on, so give it room to think.
   const res = await ai.chat.completions.create({
-    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: TOOL_SPECS, messages,
+    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: specs, messages,
     tool_choice: forceTool ? { type: 'function', function: { name: forceTool } } : 'auto',
   }, { signal })
   record(`route ${round}`, role, res.usage, Date.now() - start)
@@ -197,8 +207,8 @@ export function guardDocument(tool: string, plan: PlanStep[], called: string[]):
   return pending.length ? `finish earlier plan steps first (next: ${pending[0].tool})` : undefined
 }
 
-export function parsePlan(content: string): PlanStep[] {
-  const names = new Set(TOOLS.map((t) => t.name))
+export function parsePlan(content: string, tools: ToolDef[] = TOOLS, fallbackTool = 'search_parts'): PlanStep[] {
+  const names = new Set(tools.map((t) => t.name))
   const json = content.match(/\{[\s\S]*\}/)?.[0]
   try {
     const parsed = JSON.parse(json ?? '') as { steps?: { goal?: unknown; tool?: unknown }[] }
@@ -208,7 +218,7 @@ export function parsePlan(content: string): PlanStep[] {
       .filter((s, i, all) => i === 0 || all[i - 1].tool !== s.tool)
     if (steps.length) return steps.slice(0, 6)
   } catch { /* fall through */ }
-  return [{ goal: 'Find the relevant records', tool: 'search_parts' }]
+  return [{ goal: 'Find the relevant records', tool: fallbackTool }]
 }
 
 function answerInput(question: string, log: ToolLog[], document?: { title: string; markdown: string }): string {

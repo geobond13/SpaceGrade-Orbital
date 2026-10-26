@@ -1,6 +1,11 @@
 import { agentConfig } from '../../../../agent.config'
 import { runAgent } from '@/lib/agent/loop'
 import type { AgentEvent } from '@/lib/agent/events'
+import type { AgentMode } from '@/lib/agent/prompts'
+import { flightBriefing, flightMode } from '@/lib/agent/flight-mode'
+import { detect } from '@/lib/flight/fdir'
+import { ACTION_CLASSES } from '@/lib/flight/autonomy'
+import { isScenarioId, type ExecutedAction } from '@/lib/flight/scenarios'
 
 export const maxDuration = 300
 
@@ -14,9 +19,31 @@ function limited(ip: string): boolean {
   return false
 }
 
+const ACTION_KINDS = new Set(Object.keys(ACTION_CLASSES))
+
+/** Executed actions the client reports; only the shape is trusted, never free text into the prompt. */
+function parseActions(raw: unknown): ExecutedAction[] {
+  if (!Array.isArray(raw)) return []
+  return raw.slice(0, 5).flatMap((a) => {
+    const x = a as { kind?: unknown; t?: unknown; params?: unknown }
+    if (typeof x.kind !== 'string' || !ACTION_KINDS.has(x.kind) || typeof x.t !== 'number' || !Number.isFinite(x.t)) return []
+    const session = (x.params as { session?: unknown } | undefined)?.session
+    return [{ kind: x.kind as ExecutedAction['kind'], t: x.t, params: typeof session === 'string' ? { session: session.slice(0, 20) } : {} }]
+  })
+}
+
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => null)) as { question?: unknown } | null
-  const question = typeof body?.question === 'string' ? body.question.trim() : ''
+  const body = (await req.json().catch(() => null)) as { question?: unknown; flight?: { scenario?: unknown; eventId?: unknown; actions?: unknown } } | null
+  let question = typeof body?.question === 'string' ? body.question.trim() : ''
+  let mode: AgentMode | undefined
+  if (body?.flight) {
+    // Flight runs are woken by an FDIR event; the server builds the briefing from its own sim.
+    const { scenario, eventId } = body.flight
+    const event = isScenarioId(scenario) ? detect(scenario).find((e) => e.id === eventId) : undefined
+    if (!event) return Response.json({ error: 'unknown flight scenario or event' }, { status: 400 })
+    question = flightBriefing(event)
+    mode = flightMode(event, parseActions(body.flight.actions))
+  }
   if (!question || question.length > 1000) return Response.json({ error: 'question must be 1 to 1000 characters' }, { status: 400 })
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'
   if (limited(ip)) return Response.json({ error: `Demo limit: ${agentConfig.caps.runsPerIpPerHour} runs per hour. Try again later.` }, { status: 429 })
@@ -32,7 +59,7 @@ export async function POST(req: Request) {
         await runAgent(question, (e) => {
           if (e.type === 'done') console.log(JSON.stringify({ event: 'agent_run', question: question.slice(0, 120), ...e.totals, wallMs: Date.now() - started }))
           emit(e)
-        }, req.signal)
+        }, req.signal, mode)
       } catch (err) {
         console.error('agent run failed', err)
         emit({ type: 'error', message: err instanceof Error ? err.message : 'Agent run failed' })

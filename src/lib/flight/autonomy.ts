@@ -26,7 +26,7 @@ export const ACTION_CLASSES: Record<ActionKind, { label: string; policy: string 
   COLLISION_AVOIDANCE_BURN: { label: 'Collision avoidance burn', policy: 'Auto only if no operator can be reached before the deadline and the burn is inside the envelope (Δv ≤ 0.5 m/s, delta-v budget kept).' },
   PAYLOAD_LOAD_SHED: { label: 'Shed payload load', policy: 'Auto if the deadline is before the next contact. Payload loads only; bus and survival heaters are never shed.' },
   PROPULSION_PROCEDURE: { label: 'Propulsion procedure', policy: 'Always needs operator approval.' },
-  FLIGHT_NCR_DRAFT: { label: 'Draft flight NCR', policy: 'Auto: documentation only, no vehicle effect.' },
+  FLIGHT_NCR_DRAFT: { label: 'Draft flight NCR', policy: 'Auto: documentation only, no vehicle effect. Use the draft_flight_ncr tool.' },
 }
 
 /** Time-critical classes act alone when nobody can be reached in time; otherwise they wait. */

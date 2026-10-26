@@ -11,7 +11,7 @@ describe('flight tools', () => {
     const r = run('get_telemetry', { channel: 'TM-PROP-03' }, 'valve-leak', 10)
     const ch = (r.data as Record<string, unknown>[])[0]
     expect(ch.equivalentHeliumLeakSccs as number).toBeCloseTo(3.2e-4, 5)
-    expect((ch.projection as { missionDayDeltaVLost: number }).missionDayDeltaVLost).toBe(710)
+    expect((ch.projectionIfLeakContinues as { missionDayRequirementLost: number }).missionDayRequirementLost).toBe(710)
     expect(ids(r)).toContain('TM-PROP-03')
   })
 
