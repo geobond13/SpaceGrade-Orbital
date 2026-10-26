@@ -1,5 +1,6 @@
 'use client'
 
+import { useSyncExternalStore } from 'react'
 import { programData } from '@/data/program'
 import { parseMilestones } from '@/lib/readiness'
 import type { Focus } from '@/lib/focus'
@@ -7,8 +8,12 @@ import type { Run } from './use-agent-runs'
 
 const DAY = 86_400_000
 
-function daysTo(date: string): number {
-  return Math.ceil((Date.parse(`${date}T00:00:00Z`) - Date.now()) / DAY)
+// Today, read on the client only: the page is prerendered, so the server must not bake in a date.
+const today = () => Math.floor(Date.now() / DAY)
+const noSubscribe = () => () => {}
+
+function daysTo(date: string, day: number): number {
+  return Math.ceil(Date.parse(`${date}T00:00:00Z`) / DAY - day)
 }
 
 const PHASE_LABEL: Record<Focus['phase'], string> = {
@@ -17,6 +22,7 @@ const PHASE_LABEL: Record<Focus['phase'], string> = {
 
 export function HeaderBar({ runs, focus }: { runs: Run[]; focus: Focus }) {
   const milestones = parseMilestones(programData.program.nextMilestone)
+  const day = useSyncExternalStore(noSubscribe, today, () => null)
   const usage = runs.flatMap((r) => r.events.flatMap((e) => (e.type === 'usage' ? [e.usage] : [])))
   const cost = usage.reduce((s, u) => s + u.costUsd, 0)
   const tokens = usage.reduce((s, u) => s + u.promptTokens + u.completionTokens, 0)
@@ -34,7 +40,7 @@ export function HeaderBar({ runs, focus }: { runs: Run[]; focus: Focus }) {
         {milestones.map((m) => (
           <span key={m.date} className="flex items-baseline gap-1.5" title={`${m.label} ${m.date}`}>
             <span className="uppercase text-faint">{m.label.replace(/qualification review/i, 'qual rev')}</span>
-            <span className="font-semibold text-warn" suppressHydrationWarning>T-{daysTo(m.date)}d</span>
+            <span className="font-semibold tabular-nums text-warn">{day === null ? 'T-··d' : `T-${daysTo(m.date, day)}d`}</span>
           </span>
         ))}
       </div>

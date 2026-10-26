@@ -43,9 +43,9 @@ function Value({ value, onOpen }: { value: unknown; onOpen: (id: string) => void
 export function RecordDrawer({ id, onOpen, onClose }: { id: string; onOpen: (id: string) => void; onClose: () => void }) {
   const found = findRecord(id)
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       <aside
-        className="flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-xl"
+        className="flex h-full w-full max-w-md flex-col border-l border-line-strong bg-surface/95 shadow-2xl shadow-black backdrop-blur"
         onClick={(e) => e.stopPropagation()}
         aria-label={`Record ${id}`}
       >
