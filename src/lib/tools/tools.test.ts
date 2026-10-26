@@ -91,3 +91,10 @@ describe('simulate_change', () => {
     expect(runTool('simulate_change', { closeNcrs: ['NCR-999'] }).summary).toBe('nothing to simulate')
   })
 })
+
+describe('get_requirements argument tolerance', () => {
+  it('treats part ids passed as ids as a part filter', () => {
+    const r = runTool('get_requirements', { ids: ['P-PROP-03', 'P-PROP-05'] })
+    expect(ids(r)).toEqual(expect.arrayContaining(['REQ-PROP-020', 'REQ-PROP-028']))
+  })
+})

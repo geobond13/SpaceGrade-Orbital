@@ -4,9 +4,11 @@
 
 SpaceGrade Agent answers the questions aerospace hardware teams spend days chasing across spreadsheets, test reports and NCR logs, such as *"what is blocking propulsion qualification?"*, *"is the star tracker ready for CDR?"* or *"draft a trade study for these two valve suppliers"*. It does it in under a minute, and every claim cites the record behind it.
 
-NVIDIA Nemotron 3 Super plans the investigation, and Nemotron 3 Nano routes each step to one of six tools over parts, requirements, test records, nonconformances and supplier quotes. Super then writes the final answer, or the narrative of a generated trade study whose tables are rendered straight from the data. All model calls run on Nebius Token Factory.
+NVIDIA Nemotron 3 Super plans the investigation, and Nemotron 3 Nano routes each step to one of seven tools over parts, requirements, test records, nonconformances and supplier quotes. Super then writes the final answer, or the narrative of a generated trade study whose tables are rendered straight from the data, or a what-if: "if NCR-001 closes, how does propulsion readiness change?" All model calls run on Nebius Token Factory.
 
-A live trace shows the plan ticking off, every tool call with its arguments and the model that chose it, and tokens, latency and cost per step. A validator flags any cited id that no tool returned. A typical run costs under one cent. The demo runs on a fully synthetic smallsat program, and the code is MIT-licensed.
+The interface is a mission-control console built around a live 3D digital twin of the spacecraft. As each tool returns, the camera flies to the parts the agent is investigating, and parts glow by qualification status, with blocking nonconformances pulsing red. A readiness board and a requirement verification matrix fill in as the agent reads them. When the agent runs a simulation, the whole spacecraft re-colours to the simulated state. Engineers can also ask by voice and toggle what-ifs by hand. None of this costs extra model calls: every record id resolves to a part, so the visuals come from the agent's own event stream.
+
+A telemetry feed shows the plan ticking off, every tool call with its arguments and the model that chose it, and tokens, latency and cost per step. A validator flags any cited id that no tool returned. A typical run costs under one cent. The demo runs on a fully synthetic smallsat program, and the code is MIT-licensed.
 
 ## Feedback on Nebius Token Factory and Nemotron
 

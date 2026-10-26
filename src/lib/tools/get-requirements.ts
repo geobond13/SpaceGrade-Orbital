@@ -23,7 +23,11 @@ export const getRequirements: ToolDef = {
     const assembly = matchAssembly(args.assembly)
     if (assembly) reqs = reqs.filter((r) => r.assembly === assembly)
     const ids = Array.isArray(args.ids) ? args.ids.filter((x): x is string => typeof x === 'string') : []
-    if (ids.length) reqs = reqs.filter((r) => ids.includes(r.id))
+    // Routers sometimes pass part ids here; treat those as a part filter rather than matching nothing.
+    const partIds = ids.filter((id) => db.parts.some((p) => p.id === id))
+    const reqIds = ids.filter((id) => !partIds.includes(id))
+    if (reqIds.length) reqs = reqs.filter((r) => reqIds.includes(r.id))
+    if (partIds.length) reqs = reqs.filter((r) => r.partIds.some((p) => partIds.includes(p)))
     const status = str(args.status)
     const rows = reqs
       .map((r) => ({ r, status: verificationStatus(r) }))

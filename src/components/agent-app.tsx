@@ -194,7 +194,7 @@ export function AgentApp() {
             </div>
           </div>
 
-          <form className="border-t border-line bg-surface px-4 py-3 sm:px-5" onSubmit={(e) => { e.preventDefault(); submit(input) }}>
+          <form className="sticky bottom-0 z-10 border-t border-line bg-surface px-4 py-3 sm:px-5 lg:static" onSubmit={(e) => { e.preventDefault(); submit(input) }}>
             <div className="mx-auto flex max-w-3xl gap-2">
               <VoiceButton disabled={busy} onInterim={setInput} onFinal={submit} onListening={setListening} />
               <input

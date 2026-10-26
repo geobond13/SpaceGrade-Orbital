@@ -21,7 +21,7 @@ export function WhatIfPanel({ closed, fromAgent, readiness, baseline, onToggle, 
   const delta = readiness.pct - baseline.pct
 
   return (
-    <div className="absolute bottom-9 right-3 w-64 font-mono text-[0.68rem]">
+    <div className="absolute bottom-2 right-3 w-64 max-w-[calc(100%-1.5rem)] font-mono text-[0.68rem]">
       {expanded ? (
         <div className={`rounded-md border bg-canvas/85 p-2.5 backdrop-blur ${active ? 'border-accent/60' : 'border-line-strong'}`}>
           <div className="mb-1.5 flex items-center gap-2">

@@ -8,6 +8,7 @@ import { db } from '@/lib/tools/lookup'
 import type { PartStatus, Readiness } from '@/lib/readiness'
 import type { Focus } from '@/lib/focus'
 import { STATUS } from '../status'
+import { PartLabel } from './part-label'
 import { frameFor, MESHES, meshPosition, type Finish, type MeshSpec, type Shape } from './model'
 
 export interface TwinCanvasProps {
@@ -216,12 +217,6 @@ export default function TwinCanvas({ readiness, focus, framed, exploded, listeni
 
   const hoverPart = hovered ? db.parts.find((p) => p.id === hovered) : undefined
   const hoverFrame = hovered ? frameFor([hovered], explode) : undefined
-  // Label up to four framed parts; more than that is a region, not a list.
-  const labels = hovered || framed.length > 4 ? [] : framed.flatMap((id) => {
-    const part = db.parts.find((p) => p.id === id)
-    const f = frameFor([id], explode)
-    return part && f ? [{ part, f }] : []
-  })
 
   useEffect(() => {
     document.body.style.cursor = hovered ? 'pointer' : ''
@@ -263,24 +258,8 @@ export default function TwinCanvas({ readiness, focus, framed, exploded, listeni
           <PartLabel id={hoverPart.id} name={hoverPart.name} status={readiness.parts[hoverPart.id]} />
         </Html>
       )}
-      {labels.map(({ part, f }, i) => (
-        <Html key={part.id} position={[f.center[0], f.center[1] + (i % 2 ? -1 : 1) * (f.radius + 0.06), f.center[2]]} center style={{ pointerEvents: 'none' }} zIndexRange={[20, 0]}>
-          <PartLabel id={part.id} name={part.name} status={readiness.parts[part.id]} />
-        </Html>
-      ))}
 
       <CameraRig framed={framed} explode={explode} rotate={!hovered && framed.length === 0} reduced={reduced} />
     </Canvas>
-  )
-}
-
-function PartLabel({ id, name, status }: { id: string; name: string; status: PartStatus }) {
-  return (
-    <div className="sg-rise whitespace-nowrap rounded border border-line-strong bg-canvas/90 px-2 py-1 font-mono text-[0.68rem] shadow-lg backdrop-blur">
-      <span className="text-accent">{id}</span> <span className="text-ink">{name}</span>
-      <span className="ml-1.5 inline-flex items-center gap-1" style={{ color: STATUS[status].color }}>
-        <span className="size-1.5 rounded-full" style={{ background: STATUS[status].color }} />{STATUS[status].label}
-      </span>
-    </div>
   )
 }

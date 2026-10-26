@@ -6,6 +6,7 @@ import { db } from '@/lib/tools/lookup'
 import type { Readiness } from '@/lib/readiness'
 import type { Focus } from '@/lib/focus'
 import { Schematic } from './twin/schematic'
+import { PartLabel } from './twin/part-label'
 import { STATUS } from './status'
 
 const LEGEND = ['blocked', 'failed', 'in_progress', 'unverified', 'verified'] as const
@@ -43,7 +44,8 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
     </div>
   )
   const show3d = webgl && mode === '3d'
-  const label = framed.length === 1 ? db.parts.find((p) => p.id === framed[0])?.name : framed.length ? `${framed.length} parts` : undefined
+  const framedParts = framed.flatMap((id) => db.parts.find((p) => p.id === id) ?? [])
+  const label = framed.length > 4 ? `${framed.length} parts` : undefined
 
   return (
     <div className="grid-backdrop relative h-full w-full overflow-hidden">
@@ -53,11 +55,19 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
         </div>
       ) : webgl !== null && schematic}
 
-      <div className="pointer-events-none absolute left-3 top-2.5 flex items-center gap-2">
-        <h2 className="panel-title">Digital twin</h2>
-        {listening && <span className="sg-pulse font-mono text-[0.68rem] text-bad">● listening</span>}
-        {focus.currentTool && <span className="sg-pulse font-mono text-[0.68rem] text-accent">▸ {focus.currentTool}</span>}
-        {!focus.currentTool && label && <span className="font-mono text-[0.68rem] text-muted">◎ {label}</span>}
+      <div className="pointer-events-none absolute left-3 top-2.5 flex flex-col items-start gap-1.5">
+        <div className="flex items-center gap-2">
+          <h2 className="panel-title">Digital twin</h2>
+          {listening && <span className="sg-pulse font-mono text-[0.68rem] text-bad">● listening</span>}
+          {focus.currentTool && <span className="sg-pulse font-mono text-[0.68rem] text-accent">▸ {focus.currentTool}</span>}
+          {!focus.currentTool && label && <span className="font-mono text-[0.68rem] text-muted">◎ {label}</span>}
+        </div>
+        {/* Up to four framed parts are named; more than that is a region, not a list. */}
+        {framedParts.length > 0 && framedParts.length <= 4 && (
+          <div className="hidden flex-col items-start gap-1 sm:flex">
+            {framedParts.map((p) => <PartLabel key={p.id} id={p.id} name={p.name} status={readiness.parts[p.id]} />)}
+          </div>
+        )}
       </div>
 
       <div className="absolute right-3 top-2 flex gap-1 font-mono text-[0.65rem]">
@@ -75,7 +85,7 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
         )}
       </div>
 
-      <ul className="pointer-events-none absolute bottom-2.5 left-3 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[0.62rem] text-muted">
+      <ul className="pointer-events-none absolute bottom-2.5 left-3 flex max-w-[calc(100%-7.5rem)] flex-wrap gap-x-3 gap-y-1 font-mono text-[0.62rem] text-muted">
         {LEGEND.map((s) => (
           <li key={s} className="flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: STATUS[s].color }} />{STATUS[s].label}</li>
         ))}
