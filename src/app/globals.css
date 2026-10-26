@@ -25,10 +25,10 @@
 
   /* Readiness status, shared by the twin, board and heatmap. */
   --st-blocked: #ff4d6d;
-  --st-failed: #ff8f5a;
-  --st-in-progress: #f5c451;
+  --st-failed: #ff9a3d;
+  --st-in-progress: #8f8cff;
   --st-unverified: #5f7189;
-  --st-verified: #4ade80;
+  --st-verified: #2dd4bf;
   --st-none: #263241;
 }
 

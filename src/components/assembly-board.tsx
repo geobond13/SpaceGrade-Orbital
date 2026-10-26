@@ -44,10 +44,13 @@ export function AssemblyBoard({ readiness, baseline, focus, onSelectAssembly, on
                 {touched.has(a.assembly) && <span className="absolute inset-y-1 left-0 w-0.5 rounded bg-accent" aria-hidden />}
                 <div className="flex items-center gap-2 font-mono text-[0.72rem]">
                   <span className="w-10 font-semibold tracking-wider">{ASSEMBLY_CODE[a.assembly]}</span>
-                  <span className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-line" role="img"
+                  <span className="flex h-2 flex-1 gap-[2px]" role="img"
                     aria-label={SEGMENTS.map((s) => `${a.counts[s]} ${STATUS[s].label.toLowerCase()}`).join(', ')}>
                     {SEGMENTS.map((s) => a.counts[s] > 0 && (
-                      <span key={s} className="h-full transition-[width] duration-700" style={{ width: `${(a.counts[s] / a.total) * 100}%`, background: STATUS[s].color }} />
+                      <span key={s} className="h-full rounded-[2px] transition-[width] duration-700"
+                        style={s === 'unverified'
+                          ? { width: `${(a.counts[s] / a.total) * 100}%`, boxShadow: `inset 0 0 0 1px ${STATUS[s].color}` }
+                          : { width: `${(a.counts[s] / a.total) * 100}%`, background: STATUS[s].color }} />
                     ))}
                   </span>
                   <span className="w-14 text-right tabular-nums">

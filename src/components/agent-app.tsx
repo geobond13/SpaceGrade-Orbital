@@ -14,6 +14,7 @@ import { DocumentView } from './document-view'
 import { HeaderBar } from './header-bar'
 import { AssemblyBoard } from './assembly-board'
 import { TwinPanel } from './twin-panel'
+import { ReadinessHeatmap } from './readiness-heatmap'
 import { useAgentRuns, type Run } from './use-agent-runs'
 
 function statusLine(run: Run): string {
@@ -69,6 +70,7 @@ export function AgentApp() {
       <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)_400px]">
         <aside className="order-2 space-y-5 border-t border-line bg-surface/40 p-4 lg:order-1 lg:overflow-y-auto lg:border-t-0 lg:border-r" aria-label="Program status">
           <AssemblyBoard readiness={readiness} baseline={baseline} focus={focus} onSelectAssembly={selectAssembly} onOpenRecord={openRecord} />
+          <ReadinessHeatmap readiness={readiness} baseline={baseline} focus={focus} onOpenRecord={openRecord} />
         </aside>
 
         <main className="order-1 flex flex-col lg:order-2 lg:min-h-0">
