@@ -18,6 +18,8 @@ export interface Focus {
   touchedRecordIds: string[]
   /** Parts behind the final answer's citations. */
   citedPartIds: string[]
+  /** Arguments of the run's latest simulate_change call, so the UI can show the same what-if. */
+  simulation?: Record<string, unknown>
 }
 
 export const EMPTY_FOCUS: Focus = { phase: 'idle', activePartIds: [], touchedPartIds: [], touchedRecordIds: [], citedPartIds: [] }
@@ -54,6 +56,7 @@ export function deriveFocus(events: AgentEvent[]): Focus {
   let active: string[] = []
   const touchedRecords: string[] = []
   let cited: string[] = []
+  let simulation: Record<string, unknown> | undefined
 
   for (const e of events) {
     switch (e.type) {
@@ -63,6 +66,7 @@ export function deriveFocus(events: AgentEvent[]): Focus {
       case 'tool_call': {
         phase = 'acting'
         currentTool = e.name
+        if (e.name === 'simulate_change') simulation = e.args
         const guess = partsForArgs(e.args)
         if (guess.length) active = guess
         break
@@ -101,5 +105,6 @@ export function deriveFocus(events: AgentEvent[]): Focus {
     touchedPartIds: unique(touchedRecordIds.flatMap(partsForRecord)),
     touchedRecordIds,
     citedPartIds: cited,
+    simulation,
   }
 }

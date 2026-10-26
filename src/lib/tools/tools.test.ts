@@ -6,8 +6,8 @@ const ids = (r: { citations: { id: string }[] }) => r.citations.map((c) => c.id)
 const ofType = (r: { citations: { id: string; type: string }[] }, type: string) => r.citations.filter((c) => c.type === type).map((c) => c.id)
 
 describe('tools', () => {
-  it('registers six tools with JSON-schema parameters', () => {
-    expect(TOOLS.map((t) => t.name)).toEqual(['search_parts', 'get_requirements', 'get_test_results', 'list_nonconformances', 'compare_suppliers', 'draft_document'])
+  it('registers seven tools with JSON-schema parameters', () => {
+    expect(TOOLS.map((t) => t.name)).toEqual(['search_parts', 'get_requirements', 'get_test_results', 'list_nonconformances', 'compare_suppliers', 'simulate_change', 'draft_document'])
   })
 
   it('search_parts filters by assembly and resolves names', () => {
@@ -68,5 +68,26 @@ describe('tools', () => {
   it('rejects malformed arguments and unknown tools without throwing', () => {
     expect(runTool('search_parts', '{bad').summary).toBe('invalid arguments')
     expect(runTool('nope', {}).summary).toContain('unknown tool')
+  })
+})
+
+describe('simulate_change', () => {
+  it('closing NCR-001 retests the seat leak and unblocks only that NCR', () => {
+    const r = runTool('simulate_change', { closeNcrs: ['NCR-001'] })
+    const data = r.data as { overall: { verifiedPctBefore: number; verifiedPctAfter: number }; requirementChanges: { id: string; to: string }[]; remainingBlockingNcrs: string[] }
+    expect(data.overall.verifiedPctAfter).toBeGreaterThan(data.overall.verifiedPctBefore)
+    expect(data.requirementChanges).toContainEqual(expect.objectContaining({ id: 'REQ-PROP-020', to: 'verified' }))
+    expect(data.remainingBlockingNcrs).toEqual(expect.arrayContaining(['NCR-002', 'NCR-005']))
+    expect(data.remainingBlockingNcrs).not.toContain('NCR-001')
+    expect(r.citations.map((c) => c.id)).toEqual(expect.arrayContaining(['NCR-001', 'REQ-PROP-020']))
+  })
+
+  it('retest: false closes the NCR without changing verification', () => {
+    const r = runTool('simulate_change', { closeNcrs: 'ncr-001', retest: false })
+    expect((r.data as { requirementChanges: unknown[] }).requirementChanges).toEqual([])
+  })
+
+  it('reports unknown ids instead of simulating nothing', () => {
+    expect(runTool('simulate_change', { closeNcrs: ['NCR-999'] }).summary).toBe('nothing to simulate')
   })
 })

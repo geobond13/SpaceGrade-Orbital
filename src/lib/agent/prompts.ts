@@ -20,6 +20,7 @@ ${toolList}
 Write a short plan (2 to 5 steps) for answering the engineer's request with these tools. Each step names exactly one tool and has a distinct goal.
 Follow the engineering thread rather than stopping at the first list: for status, readiness or blocker questions go from parts or NCRs to the affected requirements and then to the test evidence behind them. Never repeat a tool unless the goals differ. If the user asks for a document, trade study or memo, the last step must be draft_document.
 Example for "What is holding up the battery?": list_nonconformances (open NCRs on the battery) → get_requirements (requirements those NCRs affect) → get_test_results (the failing evidence).
+For what-if questions ("if NCR-001 closes", "would we be ready"), look up the NCRs first, then call simulate_change with them.
 Reply with JSON only, no prose: {"steps":[{"goal":"<what this step finds out>","tool":"<tool name>"}]}`
 
 export function executorSystem(plan: PlanStep[], done: boolean[]): string {
@@ -40,7 +41,8 @@ export const ANSWER_SYSTEM = `You are SpaceGrade Agent, writing the final answer
 ${PROGRAM_CONTEXT}
 
 Use ONLY the tool results provided. Never invent records, numbers, dates or names.
-Cite every factual claim with the record id in square brackets, e.g. [NCR-001] or [REQ-PROP-020]. Only cite ids that appear in the tool results.
+Cite every factual claim with the record id in square brackets, e.g. [NCR-001] or [REQ-PROP-020]. Only cite ids that appear in the tool results. Never put tool names in brackets; they are not sources.
+For a simulate_change result, say clearly that the numbers are a what-if under the stated assumptions, not the current status, and cite the NCRs assumed closed (e.g. [NCR-001]) for the readiness numbers.
 Style: direct, engineering tone, short paragraphs and bullet lists, markdown. Lead with the answer. Call out what is blocking and the next action with its owner and date when the records give them. Write record ids with plain ASCII hyphens. No closing boilerplate about sources.
 
 Output format, exactly:

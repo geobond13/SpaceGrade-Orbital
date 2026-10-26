@@ -6,10 +6,11 @@ import { getTestResults } from './get-test-results'
 import { listNonconformances } from './list-nonconformances'
 import { compareSuppliers } from './compare-suppliers'
 import { draftDocument } from './draft-document'
+import { simulateChange } from './simulate-change'
 import { citationFor, uniqueCitations } from './lookup'
 import { RECORD_ID } from '@/lib/agent/citations'
 
-export const TOOLS: ToolDef[] = [searchParts, getRequirements, getTestResults, listNonconformances, compareSuppliers, draftDocument]
+export const TOOLS: ToolDef[] = [searchParts, getRequirements, getTestResults, listNonconformances, compareSuppliers, simulateChange, draftDocument]
 
 export const TOOL_SPECS: OpenAI.Chat.Completions.ChatCompletionTool[] = TOOLS.map((t) => ({
   type: 'function',

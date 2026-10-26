@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { extractTag } from '@/lib/agent/citations'
 import { DEMO_QUERIES } from '@/lib/demo-queries'
-import { computeReadiness, type Overrides } from '@/lib/readiness'
+import { computeReadiness } from '@/lib/readiness'
+import { overridesFromArgs } from '@/lib/tools/simulate-change'
 import { deriveFocus, EMPTY_FOCUS, partsForRecord } from '@/lib/focus'
 import { db } from '@/lib/tools/lookup'
 import { Markdown } from './markdown'
@@ -15,6 +16,7 @@ import { HeaderBar } from './header-bar'
 import { AssemblyBoard } from './assembly-board'
 import { TwinPanel } from './twin-panel'
 import { ReadinessHeatmap } from './readiness-heatmap'
+import { WhatIfPanel } from './what-if-panel'
 import { useAgentRuns, type Run } from './use-agent-runs'
 
 function statusLine(run: Run): string {
@@ -34,14 +36,26 @@ export function AgentApp() {
   const [doc, setDoc] = useState<{ title: string; markdown: string } | null>(null)
   /** Parts the user pinned by opening a record or an assembly; overrides the agent's focus. */
   const [pinned, setPinned] = useState<string[] | null>(null)
-  const [overrides] = useState<Overrides>({})
+  // What-if: NCRs the user closed by hand, and agent-closed ones the user switched back off.
+  const [manualClosed, setManualClosed] = useState<string[]>([])
+  const [excluded, setExcluded] = useState<string[]>([])
   const chatEnd = useRef<HTMLDivElement>(null)
 
-  const baseline = useMemo(() => computeReadiness(), [])
-  const readiness = useMemo(() => computeReadiness(overrides), [overrides])
   const run = runs[selected]
   const focus = useMemo(() => (run ? deriveFocus(run.events) : EMPTY_FOCUS), [run])
   const framed = pinned ?? focus.activePartIds
+
+  // The agent's simulate_change and the manual toggles feed the same overrides the tool used.
+  const agentClosed = useMemo(() => new Set(focus.simulation ? overridesFromArgs(focus.simulation).closedNcrs : []), [focus.simulation])
+  const closed = useMemo(
+    () => new Set([...agentClosed, ...manualClosed].filter((id) => !excluded.includes(id))),
+    [agentClosed, manualClosed, excluded],
+  )
+  const baseline = useMemo(() => computeReadiness(), [])
+  const readiness = useMemo(
+    () => computeReadiness(overridesFromArgs({ closeNcrs: [...closed], passTests: focus.simulation?.passTests })),
+    [closed, focus.simulation],
+  )
 
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [runs])
 
@@ -49,7 +63,27 @@ export function AgentApp() {
     if (!question.trim() || busy) return
     setInput('')
     setPinned(null)
+    setManualClosed([])
+    setExcluded([])
     void ask(question)
+  }
+
+  function toggleNcr(id: string) {
+    if (closed.has(id)) {
+      setManualClosed((m) => m.filter((x) => x !== id))
+      if (agentClosed.has(id)) setExcluded((x) => [...x, id])
+    } else {
+      setExcluded((x) => x.filter((y) => y !== id))
+      if (!agentClosed.has(id)) setManualClosed((m) => [...m, id])
+    }
+    const parts = partsForRecord(id)
+    if (parts.length) setPinned(parts)
+  }
+
+  function resetWhatIf() {
+    setManualClosed([])
+    setExcluded([...agentClosed])
+    setPinned(null)
   }
 
   function openRecord(id: string) {
@@ -75,18 +109,24 @@ export function AgentApp() {
 
         <main className="order-1 flex flex-col lg:order-2 lg:min-h-0">
           <div className="h-[300px] shrink-0 border-b border-line sm:h-[380px] lg:h-auto lg:min-h-[280px] lg:flex-[1.25]">
-            <TwinPanel readiness={readiness} focus={focus} framed={framed} onSelectPart={openRecord} />
+            <TwinPanel
+              readiness={readiness}
+              focus={focus}
+              framed={framed}
+              onSelectPart={openRecord}
+              overlay={<WhatIfPanel closed={closed} fromAgent={agentClosed} readiness={readiness} baseline={baseline} onToggle={toggleNcr} onReset={resetWhatIf} />}
+            />
           </div>
 
           <div className="px-4 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto sm:px-5">
             {runs.length === 0 && (
-              <div className="mx-auto max-w-2xl">
+              <div className="mx-auto max-w-4xl">
                 <h2 className="panel-title">Ask the program</h2>
                 <p className="mt-1.5 text-sm text-muted">
                   Nemotron Super plans, Nemotron Nano routes tool calls across parts, requirements, test records, NCRs and supplier quotes.
                   Watch the twin follow the agent. Every claim cites a record.
                 </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   {DEMO_QUERIES.map((q) => (
                     <button key={q.label} type="button" onClick={() => submit(q.question)}
                       className="rounded-md border border-line bg-surface px-3 py-2.5 text-left transition-colors hover:border-accent">
