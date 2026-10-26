@@ -66,6 +66,26 @@ flowchart LR
 
 **Visual layer** (`src/lib/focus.ts`, `src/lib/readiness.ts`, `src/components/twin/`): the UI spends no extra model calls on visuals. `deriveFocus` turns the agent's event stream into the parts it is looking at, because every record id resolves to a part (an NCR, test or quote has a `partId`, a requirement has `partIds`). `computeReadiness` rolls test evidence and NCRs up to requirements, parts and assemblies, optionally under what-if overrides. The same function backs the `simulate_change` tool, so the twin shows exactly what the agent computed. The twin is a procedural react-three-fiber model where every mesh belongs to a part id; it is code-split and falls back to a 2D schematic without WebGL. Status colours were checked for colour-vision deficiency, and status never relies on colour alone.
 
+## Flight Mode (`/flight`): the build pedigree as a virtual sensor
+
+![Flight Mode: a conjunction with no operator on console; the policy executes an avoidance burn because the as-built heater moves the deadline before the next contact](docs/flight.jpg)
+
+Spacecraft are short on sensors, because every sensor costs money, mass and power. So a symptom in orbit usually fits more than one cause. Ground engineers settle it from the records ("that valve had a seat-leak NCR, use-as-is"), but that history lives in PLM and QMS systems and in people's heads, not in the loop. Flight Mode puts it in the loop. A ground autonomy agent is woken by onboard fault detection while nobody is on console. It reads the telemetry, then the vehicle's **build pedigree**, and reasons about what this particular vehicle is doing.
+
+Each scenario turns a record that already exists in the program data into a flight problem:
+
+| Scenario | Symptom | Record that explains it | What a spec-sheet model gets wrong | Outcome |
+|---|---|---|---|---|
+| Slow pressure loss | Temperature-compensated tank pressure trends −0.087 psi/day | NCR-001: the isolation valve seat leaked 3.2e-4 scc/s in qualification | Sees noise or "a leak somewhere"; nothing projects end of life | Inferred leak is 3.2e-4 scc/s, the same as NCR-001. Stranded propellant takes delta-v below REQ-SYS-002 by mission day ~710. A propulsion procedure waits for operator approval and a flight NCR goes back to the build record |
+| Conjunction, nobody on console | Pc 2.1e-4, closest approach in 118 min | NCR-002: the catalyst bed heater is 52 Ω and reaches only 290 °C at 30 min | Preheat 30 min, so the decision deadline is T+45, after the T+38 pass, and a human could decide | As-built preheat is 43 min, so the deadline is T+32, **before** the pass. The policy executes the burn autonomously, and the miss distance grows from 180 m to 1.2 km |
+| Eclipse power with weak cells | End-of-eclipse voltage 0.04 V below model, three eclipses running | NCR-005: cell lot L-2611 has 9.6 Ah against 10.0 Ah | The next eclipse with an X-band downlink is 19.6% depth of discharge, inside the 20% limit | As-built it is 20.4%, over the REQ-PWR-021 limit. The policy sheds the payload session autonomously, giving 17.4% |
+
+**The agent proposes; a deterministic policy decides.** The LLM never commands the vehicle. `propose_action` submits a proposal to `src/lib/flight/autonomy.ts`, which checks an envelope (for example Δv ≤ 0.5 m/s and the delta-v budget kept) and sets the tier from one question: *can an operator be reached before the decision deadline?* If not, pre-approved action classes execute and are logged. If so, they wait for approval. Propulsion procedures always wait. In the eval, Nano's own rationale sometimes gets the timing wrong; the policy is the source of truth, and the decision card shows its checks.
+
+**How it is built.** The same agent loop runs with an `AgentMode` (flight tools, context, answer rules). `get_telemetry` reads only up to "now". `get_part_history` returns the pedigree, including NCRs on sibling parts in the same system. The other tools are `get_contact_windows`, `propose_action` and `draft_flight_ncr`. The simulation (`src/lib/flight/`) is seeded and pure, and its model parameters come from record values, such as heater resistance into the preheat curve, the leak rate into blowdown, and cell capacity into depth of discharge. Fault detection is a fixed rule set with no model in it. `npm run eval:flight` runs all three scenarios headless and checks the cited record and the tier (~$0.015 for all three).
+
+**Roadmap.** (1) Today: an always-on ground agent. (2) Compile what it learns into onboard tables, such as thresholds and models tuned to the as-built vehicle. (3) Onboard reasoning on payload-class compute, for decisions that are not flight-critical. Next scenario: IMU drift during star tracker dropouts near the sun-exclusion angle, which NCR-004's thin baffle anodize explains.
+
 ## How we use Nemotron and Nebius Token Factory
 
 - **One client, one provider.** `src/lib/nebius.ts` builds the `openai` SDK client with `baseURL = NEBIUS_BASE_URL` and `apiKey = NEBIUS_API_KEY`. No other model provider is installed or called.
@@ -96,8 +116,9 @@ git clone https://github.com/geobond13/spacegrade-agent && cd spacegrade-agent
 npm install
 cp .env.example .env.local     # then set NEBIUS_API_KEY
 npm run smoke                  # lists Nemotron models, runs Super + Nano + one tool call
-npm test                       # 27 unit tests: tools, citations, plan progress, guardrails, readiness, focus, what-if
+npm test                       # 47 unit tests: tools, citations, guardrails, readiness, focus, what-if, flight physics, FDIR, autonomy policy
 npm run eval                   # the 4 demo queries end to end, with token/cost totals
+npm run eval:flight            # the 3 Flight Mode scenarios: cited record + autonomy tier
 npm run dev                    # http://localhost:3000
 ```
 
@@ -116,6 +137,9 @@ src/lib/focus.ts           agent events -> parts in focus
 src/app/api/agent/route.ts streaming endpoint
 src/components/            console shell, board, matrix, what-if, voice, trace, drawers
 src/components/twin/       3D model, canvas, 2D schematic fallback
+src/lib/flight/            Flight Mode sim: physics from records, scenarios, FDIR, autonomy policy, part health
+src/lib/tools/flight/      flight tools
+src/components/flight/     /flight UI: telemetry strips, operations timeline, decision cards
 scripts/                   smoke test, eval
 docs/                      demo script, Devpost text
 ```
@@ -125,6 +149,7 @@ docs/                      demo script, Devpost text
 - The data is a small synthetic program held in memory. A real deployment would read the same shapes from a PLM/QMS database.
 - The rate limiter is per server instance and best-effort.
 - Answers are drafts for engineering review. The agent reads records; it does not change them. What-if results are simulations and are labelled as such.
+- Flight Mode is a simulation on synthetic data, with simplified physics. It is not flight software, and the autonomy policy is illustrative.
 - Voice input uses the browser's speech recognition (Chrome, Edge, Safari) and is hidden elsewhere.
 
 ## License

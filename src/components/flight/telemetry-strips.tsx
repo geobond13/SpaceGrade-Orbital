@@ -42,6 +42,8 @@ function Strip({ channel, scenario, t, actions, active, onOpen }: {
   const padY = (hi - lo) * 0.12
   lo -= padY
   hi += padY
+  // Physical floors (0 m, 0 W) stay the floor; padding must not invent negative values.
+  if (channel.span && !channel.log) lo = Math.max(lo, channel.span[0])
   const x = (m: number) => PAD.l + ((m - start) / (end - start)) * (width - PAD.l - PAD.r)
   const y = (v: number) => PAD.t + (1 - (tf(v) - lo) / (hi - lo)) * (H - PAD.t - PAD.b)
   const path = (key: 'v' | 'spec') => pts.filter((p) => p[key] !== undefined).map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p[key]!).toFixed(1)}`).join('')
