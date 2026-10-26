@@ -1,7 +1,10 @@
 import type { Citation } from '@/lib/tools'
 
-/** Record id shapes in the program data: P-PROP-03, REQ-ADCS-021, TR-008, NCR-001, SUP-HALDEN, Q-101. */
-export const RECORD_ID = /\b(?:P-[A-Z]+-\d{2}|REQ-[A-Z]+-\d{3}|TR-\d{3}|NCR-\d{3}|SUP-[A-Z]+|Q-\d{3})\b/g
+/**
+ * Record id shapes: program data (P-PROP-03, REQ-ADCS-021, TR-008, NCR-001, SUP-HALDEN, Q-101) and
+ * Flight Mode (telemetry TM-PROP-01, FDIR events FE-101, conjunction messages CDM-0412, payload sessions XB-0412).
+ */
+export const RECORD_ID = /\b(?:P-[A-Z]+-\d{2}|REQ-[A-Z]+-\d{3}|TR-\d{3}|NCR-\d{3}|SUP-[A-Z]+|Q-\d{3}|TM-[A-Z]+-\d{2}|FE-\d{3}|CDM-\d{4}|XB-\d{4})\b/g
 
 /**
  * Split the ids an answer mentions into those a tool actually returned

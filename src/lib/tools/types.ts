@@ -1,4 +1,7 @@
-export type CitationType = 'part' | 'requirement' | 'test' | 'ncr' | 'supplier' | 'quote'
+import type { ExecutedAction, ScenarioId } from '@/lib/flight/scenarios'
+import type { Decision } from '@/lib/flight/autonomy'
+
+export type CitationType = 'part' | 'requirement' | 'test' | 'ncr' | 'supplier' | 'quote' | 'telemetry' | 'event' | 'conjunction' | 'session'
 
 export interface Citation {
   type: CitationType
@@ -13,13 +16,22 @@ export interface ToolResult {
   citations: Citation[]
   /** One line for the trace, e.g. "4 parts matched". */
   summary: string
-  /** Set by draft_document only. */
+  /** Set by draft_document and draft_flight_ncr only. */
   document?: { title: string; markdown: string }
+  /** Set by propose_action only: what the autonomy policy decided. */
+  decision?: Decision
+}
+
+/** Flight Mode state a tool reads: which scenario, the sim time, and what has been executed. */
+export interface ToolCtx {
+  scenario: ScenarioId
+  t: number
+  actions: ExecutedAction[]
 }
 
 export interface ToolDef {
   name: string
   description: string
   parameters: Record<string, unknown>
-  run(args: Record<string, unknown>): ToolResult
+  run(args: Record<string, unknown>, ctx?: ToolCtx): ToolResult
 }

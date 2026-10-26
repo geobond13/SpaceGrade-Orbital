@@ -92,3 +92,15 @@ export const CONJUNCTION = {
 }
 
 export const deltaVForLead = (leadMin: number) => CONJUNCTION.targetMissM / (3 * leadMin * 60)
+
+/** Helium leak rate (scc/s) implied by a temperature-compensated pressure slope (psi/day). */
+export function leakFromSlope(psiPerDay: number): number {
+  const ullageL = TANK.volumeL - TANK.propellantL
+  return (-psiPerDay * ullageL * SCC_PER_PSIA_L_AT_20C) / 86_400
+}
+
+/** First mission day on which end-of-life delta-v would fall below the requirement, at this leak rate. */
+export function dayDeltaVBelowRequirement(leakSccs: number, maxDays = 5 * 365): number | undefined {
+  for (let d = 0; d <= maxDays; d += 5) if (deltaVAtEndOfLife(d, leakSccs).deltaVMs < TANK.requiredDeltaVMs) return d
+  return undefined
+}
