@@ -1,5 +1,5 @@
 import { programData } from '@/data/program'
-import type { Nonconformance, Part, Requirement, Supplier } from '@/data/types'
+import type { Nonconformance, Part, Requirement, Supplier, TestOutcome } from '@/data/types'
 import type { Citation } from './types'
 
 export const db = programData
@@ -54,18 +54,28 @@ export function matchAssembly(a: unknown): string | undefined {
   return ASSEMBLIES.find((n) => q.includes(n.toLowerCase())) ?? Object.entries(ASSEMBLY_ALIASES).find(([k]) => q.split(' ').includes(k))?.[1]
 }
 
-export function verificationStatus(r: Requirement): VerificationStatus {
+/** Hypothetical changes applied on top of the program data (what-if simulation). */
+export interface Overrides {
+  closedNcrs?: string[]
+  testOutcomes?: Record<string, TestOutcome>
+}
+
+const outcomeOf = (t: { id: string; outcome: TestOutcome }, o?: Overrides) => o?.testOutcomes?.[t.id] ?? t.outcome
+
+export function verificationStatus(r: Requirement, o?: Overrides): VerificationStatus {
   const tests = db.tests.filter((t) => t.requirementIds.includes(r.id))
   if (tests.length === 0) return 'unverified'
-  if (tests.some((t) => t.outcome === 'fail')) return 'failed'
-  if (tests.every((t) => t.outcome === 'pass')) return 'verified'
+  const outcomes = tests.map((t) => outcomeOf(t, o))
+  if (outcomes.some((x) => x === 'fail')) return 'failed'
+  if (outcomes.every((x) => x === 'pass')) return 'verified'
   return 'in_progress'
 }
 
-export const isOpen = (n: Nonconformance) => n.status === 'open' || n.status === 'in_review'
+export const isOpen = (n: Nonconformance, o?: Overrides) =>
+  (n.status === 'open' || n.status === 'in_review') && !o?.closedNcrs?.includes(n.id)
 
-export function openNcrsForPart(partId: string): Nonconformance[] {
-  return db.nonconformances.filter((n) => n.partId === partId && isOpen(n))
+export function openNcrsForPart(partId: string, o?: Overrides): Nonconformance[] {
+  return db.nonconformances.filter((n) => n.partId === partId && isOpen(n, o))
 }
 
 export const cite = {
