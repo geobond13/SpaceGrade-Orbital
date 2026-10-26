@@ -17,6 +17,7 @@ import { AssemblyBoard } from './assembly-board'
 import { TwinPanel } from './twin-panel'
 import { ReadinessHeatmap } from './readiness-heatmap'
 import { WhatIfPanel } from './what-if-panel'
+import { VoiceButton } from './voice-button'
 import { useAgentRuns, type Run } from './use-agent-runs'
 
 function statusLine(run: Run): string {
@@ -39,6 +40,7 @@ export function AgentApp() {
   // What-if: NCRs the user closed by hand, and agent-closed ones the user switched back off.
   const [manualClosed, setManualClosed] = useState<string[]>([])
   const [excluded, setExcluded] = useState<string[]>([])
+  const [listening, setListening] = useState(false)
   const chatEnd = useRef<HTMLDivElement>(null)
 
   const run = runs[selected]
@@ -114,6 +116,7 @@ export function AgentApp() {
               focus={focus}
               framed={framed}
               onSelectPart={openRecord}
+              listening={listening}
               overlay={<WhatIfPanel closed={closed} fromAgent={agentClosed} readiness={readiness} baseline={baseline} onToggle={toggleNcr} onReset={resetWhatIf} />}
             />
           </div>
@@ -193,6 +196,7 @@ export function AgentApp() {
 
           <form className="border-t border-line bg-surface px-4 py-3 sm:px-5" onSubmit={(e) => { e.preventDefault(); submit(input) }}>
             <div className="mx-auto flex max-w-3xl gap-2">
+              <VoiceButton disabled={busy} onInterim={setInput} onFinal={submit} onListening={setListening} />
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}

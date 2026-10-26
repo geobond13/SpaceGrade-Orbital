@@ -55,6 +55,7 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
 
       <div className="pointer-events-none absolute left-3 top-2.5 flex items-center gap-2">
         <h2 className="panel-title">Digital twin</h2>
+        {listening && <span className="sg-pulse font-mono text-[0.68rem] text-bad">● listening</span>}
         {focus.currentTool && <span className="sg-pulse font-mono text-[0.68rem] text-accent">▸ {focus.currentTool}</span>}
         {!focus.currentTool && label && <span className="font-mono text-[0.68rem] text-muted">◎ {label}</span>}
       </div>
