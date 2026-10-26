@@ -83,7 +83,7 @@ export function TwinPanel({ visuals, legend, focus, framed, onSelectPart, listen
         )}
       </div>
 
-      <ul className="pointer-events-none absolute bottom-2.5 left-3 flex max-w-[calc(100%-7.5rem)] flex-wrap gap-x-3 gap-y-1 font-mono text-[0.62rem] text-muted">
+      <ul className="pointer-events-none absolute bottom-2.5 left-3 hidden max-w-[calc(100%-7.5rem)] flex-wrap sm:flex gap-x-3 gap-y-1 font-mono text-[0.62rem] text-muted">
         {legend.map((l) => (
           <li key={l.label} className="flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: l.hex }} />{l.label}</li>
         ))}

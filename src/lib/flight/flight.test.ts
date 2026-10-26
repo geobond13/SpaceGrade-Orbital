@@ -73,3 +73,15 @@ describe('autonomy policy', () => {
     expect(decide('valve-leak', 12, 'PROPULSION_PROCEDURE', { procedure: 'latch valve exercise' }, []).tier).toBe('gated')
   })
 })
+
+describe('flight health on the twin', () => {
+  it('symptom, cause, commanded and shed parts', async () => {
+    const { partHealth } = await import('./health')
+    const fe = detect('valve-leak')
+    expect(partHealth(12, fe, ['NCR-001'], [])).toMatchObject({ 'P-PROP-02': 'watch', 'P-PROP-03': 'cause' })
+    const burn = [{ kind: 'COLLISION_AVOIDANCE_BURN' as const, t: 2, params: {} }]
+    expect(partHealth(20, [], [], burn)['P-PROP-05']).toBe('commanded')
+    expect(partHealth(200, [], [], burn)['P-PROP-05']).toBeUndefined()
+    expect(partHealth(50, [], [], [{ kind: 'PAYLOAD_LOAD_SHED', t: 4, params: {} }])['P-COM-05']).toBe('shed')
+  })
+})
