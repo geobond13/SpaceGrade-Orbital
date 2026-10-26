@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useSyncExternalStore } from 'react'
 import { programData } from '@/data/program'
 import { parseMilestones } from '@/lib/readiness'
@@ -53,6 +54,7 @@ export function HeaderBar({ runs, focus }: { runs: Run[]; focus: Focus }) {
         <span className="hidden text-muted lg:inline">
           <span className="text-super">NEMOTRON SUPER</span> · <span className="text-nano">NANO</span> <span className="text-faint">via Nebius Token Factory</span>
         </span>
+        <Link href="/flight" className="rounded border border-accent/60 px-2 py-0.5 uppercase tracking-wider text-accent hover:bg-accent-soft">Flight Mode →</Link>
         <span className="tabular-nums text-muted" title="Session total across all runs">
           {tokens.toLocaleString()} tok · <span className="text-ink">${cost.toFixed(4)}</span>
         </span>

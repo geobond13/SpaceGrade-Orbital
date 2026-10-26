@@ -15,6 +15,7 @@ import { DocumentView } from './document-view'
 import { HeaderBar } from './header-bar'
 import { AssemblyBoard } from './assembly-board'
 import { TwinPanel } from './twin-panel'
+import { READINESS_LEGEND, readinessVisuals } from './twin/visuals'
 import { ReadinessHeatmap } from './readiness-heatmap'
 import { WhatIfPanel } from './what-if-panel'
 import { VoiceButton } from './voice-button'
@@ -58,6 +59,7 @@ export function AgentApp() {
     () => computeReadiness(overridesFromArgs({ closeNcrs: [...closed], passTests: focus.simulation?.passTests })),
     [closed, focus.simulation],
   )
+  const visuals = useMemo(() => readinessVisuals(readiness), [readiness])
 
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [runs])
 
@@ -112,7 +114,8 @@ export function AgentApp() {
         <main className="order-1 flex flex-col lg:order-2 lg:min-h-0">
           <div className="h-[300px] shrink-0 border-b border-line sm:h-[380px] lg:h-auto lg:min-h-[280px] lg:flex-[1.25]">
             <TwinPanel
-              readiness={readiness}
+              visuals={visuals}
+              legend={READINESS_LEGEND}
               focus={focus}
               framed={framed}
               onSelectPart={openRecord}

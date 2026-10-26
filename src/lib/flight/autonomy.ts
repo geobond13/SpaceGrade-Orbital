@@ -8,7 +8,8 @@ import { BATTERY, CONJUNCTION, deltaVAtEndOfLife, preheatMinutes, TANK } from '.
 
 export type Tier = 'auto' | 'gated' | 'refused'
 
-export interface Check { label: string; ok: boolean; detail: string; source?: string }
+/** ok: null marks context, not a pass/fail envelope check. */
+export interface Check { label: string; ok: boolean | null; detail: string; source?: string }
 
 export interface Decision {
   kind: ActionKind
@@ -56,9 +57,9 @@ export function decide(scenario: ScenarioId, t: number, kind: ActionKind, params
     const dvOk = plan.deltaVMs <= CONJUNCTION.maxDeltaVMs
     const budgetAfter = TANK.deltaVBudgetMs - plan.deltaVMs
     const checks: Check[] = [
-      { label: 'Preheat time (as-built)', ok: true, detail: `${asBuilt.toFixed(1)} min to 315 °C; spec heater would take ${spec.toFixed(0)} min`, source: 'NCR-002' },
+      { label: 'Preheat time (as-built)', ok: null, detail: `${asBuilt.toFixed(1)} min to 315 °C; spec heater would take ${spec.toFixed(0)} min`, source: 'NCR-002' },
       { label: 'Decision deadline', ok: t <= deadline, detail: `command preheat by ${fmt(deadline)} (spec model says ${fmt(specDeadline)})` },
-      { label: 'Operator reachable before deadline', ok: !!contact && contact.start < deadline, detail: contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled' },
+      { label: 'Operator reachable before deadline', ok: null, detail: `${contact && contact.start < deadline ? 'yes' : 'no'}: ${contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled'}` },
       { label: 'Δv within envelope', ok: dvOk, detail: `${plan.deltaVMs.toFixed(3)} m/s for a ${plan.leadMin.toFixed(0)} min lead (limit ${CONJUNCTION.maxDeltaVMs} m/s)` },
       { label: 'Delta-v budget kept', ok: budgetAfter >= TANK.requiredDeltaVMs, detail: `${budgetAfter.toFixed(2)} m/s left vs ${TANK.requiredDeltaVMs} m/s required`, source: 'REQ-SYS-002' },
     ]
@@ -81,7 +82,7 @@ export function decide(scenario: ScenarioId, t: number, kind: ActionKind, params
       { label: 'Payload load only', ok: target, detail: target ? `${XBAND_SESSION.id} X-band downlink, ${XBAND_SESSION.watts} W` : `unknown session ${session}` },
       { label: 'Depth of discharge (as-built)', ok: after.dodPct <= BATTERY.maxDodPct, detail: `${before.dodPct.toFixed(1)} % → ${after.dodPct.toFixed(1)} % (limit ${BATTERY.maxDodPct} %)`, source: 'NCR-005' },
       { label: 'Decision deadline', ok: t <= deadline, detail: `session starts ${fmt(deadline)}` },
-      { label: 'Operator reachable before deadline', ok: !!contact && contact.start < deadline, detail: contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled' },
+      { label: 'Operator reachable before deadline', ok: null, detail: `${contact && contact.start < deadline ? 'yes' : 'no'}: ${contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled'}` },
     ]
     const tier = tierByDeadline(t, deadline, contact, target)
     return {
@@ -96,7 +97,7 @@ export function decide(scenario: ScenarioId, t: number, kind: ActionKind, params
       kind, tier: 'gated', nextContact: contact, params,
       reason: 'Propulsion procedures always need operator approval.',
       checks: [
-        { label: 'Procedure', ok: true, detail: String(params.procedure ?? 'unspecified') },
+        { label: 'Procedure', ok: null, detail: String(params.procedure ?? 'unspecified') },
         { label: 'End-of-life delta-v if the leak continues', ok: eol.deltaVMs >= TANK.requiredDeltaVMs, detail: `${eol.deltaVMs.toFixed(0)} m/s vs ${TANK.requiredDeltaVMs} m/s required`, source: 'REQ-SYS-002' },
       ],
     }

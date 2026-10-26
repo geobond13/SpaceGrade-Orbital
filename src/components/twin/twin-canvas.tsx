@@ -5,14 +5,13 @@ import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { CameraControls, Edges, Html, Outlines, Stars } from '@react-three/drei'
 import * as THREE from 'three'
 import { db } from '@/lib/tools/lookup'
-import type { PartStatus, Readiness } from '@/lib/readiness'
 import type { Focus } from '@/lib/focus'
-import { STATUS } from '../status'
+import { NO_VISUAL, type PartVisual, type PartVisuals } from './visuals'
 import { PartLabel } from './part-label'
 import { frameFor, MESHES, meshPosition, type Finish, type MeshSpec, type Shape } from './model'
 
 export interface TwinCanvasProps {
-  readiness: Readiness
+  visuals: PartVisuals
   focus: Focus
   framed: string[]
   exploded: boolean
@@ -45,9 +44,9 @@ function Geometry({ shape }: { shape: Shape }) {
 
 const noRaycast = () => null
 
-function PartMesh({ spec, status, lit, active, explode, onSelect, onHover, reduced }: {
+function PartMesh({ spec, visual, lit, active, explode, onSelect, onHover, reduced }: {
   spec: MeshSpec
-  status: PartStatus
+  visual: PartVisual
   lit: boolean
   active: boolean
   explode: number
@@ -58,17 +57,17 @@ function PartMesh({ spec, status, lit, active, explode, onSelect, onHover, reduc
   const mesh = useRef<THREE.Mesh>(null)
   const mat = useRef<THREE.MeshStandardMaterial>(null)
   const flash = useRef(0)
-  const prev = useRef(status)
+  const prev = useRef(visual.key)
   const target = useMemo(() => new THREE.Vector3(), [])
-  const statusColor = useMemo(() => new THREE.Color(STATUS[status].hex), [status])
+  const statusColor = useMemo(() => new THREE.Color(visual.hex), [visual.hex])
   const finish = FINISH[spec.finish ?? 'metal']
   const seeThrough = SEE_THROUGH.has(spec.finish ?? 'metal')
 
-  // A status change (what-if) flashes the part.
+  // A state change (what-if, executed action) flashes the part.
   useEffect(() => {
-    if (prev.current !== status) flash.current = 1
-    prev.current = status
-  }, [status])
+    if (prev.current !== visual.key) flash.current = 1
+    prev.current = visual.key
+  }, [visual.key])
 
   useFrame((state, dt) => {
     const m = mesh.current
@@ -79,9 +78,9 @@ function PartMesh({ spec, status, lit, active, explode, onSelect, onHover, reduc
     else m.position.lerp(target, 1 - Math.exp(-dt * 5))
     mt.emissive.lerp(statusColor, 1 - Math.exp(-dt * 6))
     const t = state.clock.elapsedTime
-    const pulse = status === 'blocked' && !reduced ? 0.55 + 0.45 * Math.sin(t * 4) : 1
-    // At rest only problems glow; parts the agent has looked at light up whatever their status.
-    const base = status === 'none' ? 0 : active ? 1.1 : lit ? 0.6 : status === 'verified' ? 0 : 0.35
+    const pulse = visual.pulse && !reduced ? 0.55 + 0.45 * Math.sin(t * 4) : 1
+    // At rest only problems glow; parts the agent has looked at light up whatever their state.
+    const base = visual.key === 'none' ? 0 : active ? 1.1 : lit ? 0.6 : visual.rest
     flash.current = Math.max(0, flash.current - dt * 0.8)
     mt.emissiveIntensity = (seeThrough ? base * 0.3 : base) * pulse + flash.current * 2.5
   })
@@ -105,10 +104,10 @@ function PartMesh({ spec, status, lit, active, explode, onSelect, onHover, reduc
         transparent={finish.opacity !== undefined}
         opacity={finish.opacity ?? 1}
         depthWrite={finish.opacity === undefined}
-        emissive={STATUS[status].hex}
+        emissive={visual.hex}
         emissiveIntensity={0}
       />
-      {seeThrough && <Edges threshold={20} color={lit || status === 'blocked' ? STATUS[status].hex : '#3b5266'} />}
+      {seeThrough && <Edges threshold={20} color={lit || visual.pulse ? visual.hex : '#3b5266'} />}
       {active && !seeThrough && <Outlines thickness={0.012} color={ACCENT} />}
     </mesh>
   )
@@ -183,7 +182,7 @@ function CameraRig({ framed, explode, rotate, reduced }: { framed: string[]; exp
     flat.normalize()
     const elevation = center.y < -0.55 ? 0.12 : 0.5
     const dir = flat.multiplyScalar(Math.cos(elevation)).setY(Math.sin(elevation))
-    const dist = Math.max(1.4, (f.radius * 1.7) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)))
+    const dist = Math.max(1.9, (f.radius * 1.7) / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)))
     const eye = center.clone().add(dir.multiplyScalar(dist))
     void c.setLookAt(eye.x, eye.y, eye.z, center.x, center.y, center.z, !reduced)
   }, [key, explode]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -206,7 +205,7 @@ function usePrefersReducedMotion() {
   return useSyncExternalStore(subscribeReduced, () => window.matchMedia(REDUCED).matches, () => false)
 }
 
-export default function TwinCanvas({ readiness, focus, framed, exploded, listening, onSelectPart }: TwinCanvasProps) {
+export default function TwinCanvas({ visuals, focus, framed, exploded, listening, onSelectPart }: TwinCanvasProps) {
   const [hovered, setHovered] = useState<string | null>(null)
   const reduced = usePrefersReducedMotion()
   const explode = exploded ? 1 : 0
@@ -233,12 +232,11 @@ export default function TwinCanvas({ readiness, focus, framed, exploded, listeni
 
       <group>
         {MESHES.map((spec, i) => {
-          const status = readiness.parts[spec.partId] ?? 'none'
           return (
             <PartMesh
               key={i}
               spec={spec}
-              status={status}
+              visual={visuals[spec.partId] ?? NO_VISUAL}
               lit={lit.has(spec.partId)}
               active={active.has(spec.partId)}
               explode={explode}
@@ -255,7 +253,7 @@ export default function TwinCanvas({ readiness, focus, framed, exploded, listeni
 
       {hoverPart && hoverFrame && (
         <Html position={hoverFrame.center} center style={{ pointerEvents: 'none' }} zIndexRange={[20, 0]}>
-          <PartLabel id={hoverPart.id} name={hoverPart.name} status={readiness.parts[hoverPart.id]} />
+          <PartLabel id={hoverPart.id} name={hoverPart.name} visual={visuals[hoverPart.id] ?? NO_VISUAL} />
         </Html>
       )}
 

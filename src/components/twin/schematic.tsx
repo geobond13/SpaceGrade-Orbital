@@ -1,8 +1,8 @@
 'use client'
 
 import { db } from '@/lib/tools/lookup'
-import type { Readiness } from '@/lib/readiness'
-import { ASSEMBLY_CODE, STATUS } from '../status'
+import { ASSEMBLY_CODE } from '../status'
+import { NO_VISUAL, type PartVisuals } from './visuals'
 
 // Flat schematic of the spacecraft: one block per top-level part, grouped by
 // assembly. Shown while the 3D twin loads, without WebGL, and on small screens.
@@ -16,13 +16,13 @@ const LAYOUT: Record<string, { x: number; y: number; w: number; h: number }> = {
   Structure: { x: 310, y: 20, w: 70, h: 170 },
 }
 
-export function Schematic({ readiness, highlighted, onSelectPart }: {
-  readiness: Readiness
+export function Schematic({ visuals, highlighted, onSelectPart }: {
+  visuals: PartVisuals
   highlighted: Set<string>
   onSelectPart: (id: string) => void
 }) {
   return (
-    <svg viewBox="0 0 390 200" className="h-full w-full" role="img" aria-label="Spacecraft schematic colored by readiness">
+    <svg viewBox="0 0 390 200" className="h-full w-full" role="img" aria-label="Spacecraft schematic colored by part state">
       {Object.entries(LAYOUT).map(([assembly, box]) => {
         const parts = db.parts.filter((p) => p.assembly === assembly)
         const cols = Math.ceil(Math.sqrt(parts.length * (box.w / box.h)))
@@ -34,7 +34,7 @@ export function Schematic({ readiness, highlighted, onSelectPart }: {
             <rect x={box.x} y={box.y} width={box.w} height={box.h} rx={3} fill="none" stroke="var(--line-strong)" />
             <text x={box.x + 4} y={box.y + 10} fontSize={7} fontFamily="var(--font-geist-mono)" fill="var(--muted)" letterSpacing={1}>{ASSEMBLY_CODE[assembly]}</text>
             {parts.map((p, i) => {
-              const status = readiness.parts[p.id]
+              const visual = visuals[p.id] ?? NO_VISUAL
               const lit = highlighted.has(p.id)
               return (
                 <rect
@@ -44,14 +44,14 @@ export function Schematic({ readiness, highlighted, onSelectPart }: {
                   width={cw - 2}
                   height={ch - 2}
                   rx={1.5}
-                  fill={STATUS[status].color}
+                  fill={visual.hex}
                   fillOpacity={lit ? 0.95 : 0.35}
                   stroke={lit ? 'var(--accent)' : 'none'}
                   strokeWidth={1.2}
-                  className={status === 'blocked' ? 'sg-pulse cursor-pointer' : 'cursor-pointer'}
+                  className={visual.pulse ? 'sg-pulse cursor-pointer' : 'cursor-pointer'}
                   onClick={() => onSelectPart(p.id)}
                 >
-                  <title>{`${p.id} ${p.name}: ${STATUS[status].label}`}</title>
+                  <title>{`${p.id} ${p.name}: ${visual.label}`}</title>
                 </rect>
               )
             })}

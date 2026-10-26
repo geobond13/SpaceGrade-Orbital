@@ -19,8 +19,16 @@ export function useAgentRuns() {
   const [selected, setSelected] = useState(0)
   const busy = runs.some((r) => r.status === 'running')
 
-  async function ask(question: string) {
-    if (!question.trim() || busy) return
+  /** Ask a typed question. */
+  function ask(question: string) {
+    if (!question.trim()) return Promise.resolve()
+    return start({ question }, question)
+  }
+
+  /** Start a run with any request body the agent route accepts (e.g. a Flight Mode event). */
+  async function start(body: Record<string, unknown>, label: string) {
+    if (busy) return
+    const question = label
     const index = runs.length
     setSelected(index)
     setRuns((rs) => [...rs, { question, events: [], stamps: [], startedAt: Date.now(), answerRaw: '', status: 'running' }])
@@ -28,7 +36,7 @@ export function useAgentRuns() {
     const fail = (message: string) =>
       update((r) => ({ ...r, status: 'error', events: [...r.events, { type: 'error', message }], stamps: [...r.stamps, Date.now()] }))
     try {
-      const res = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
+      const res = await fetch('/api/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok || !res.body) {
         const err = (await res.json().catch(() => ({}))) as { error?: string }
         fail(err.error ?? `Request failed (${res.status})`)
@@ -66,5 +74,10 @@ export function useAgentRuns() {
     }
   }
 
-  return { runs, selected, setSelected, busy, ask }
+  function reset() {
+    setRuns([])
+    setSelected(0)
+  }
+
+  return { runs, selected, setSelected, busy, ask, start, reset }
 }

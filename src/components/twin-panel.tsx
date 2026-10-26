@@ -3,13 +3,10 @@
 import dynamic from 'next/dynamic'
 import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import { db } from '@/lib/tools/lookup'
-import type { Readiness } from '@/lib/readiness'
 import type { Focus } from '@/lib/focus'
 import { Schematic } from './twin/schematic'
 import { PartLabel } from './twin/part-label'
-import { STATUS } from './status'
-
-const LEGEND = ['blocked', 'failed', 'in_progress', 'unverified', 'verified'] as const
+import { NO_VISUAL, type LegendItem, type PartVisuals } from './twin/visuals'
 
 let webglCache: boolean | undefined
 function hasWebGL(): boolean {
@@ -23,8 +20,9 @@ function hasWebGL(): boolean {
 }
 const noSubscribe = () => () => {}
 
-export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, overlay }: {
-  readiness: Readiness
+export function TwinPanel({ visuals, legend, focus, framed, onSelectPart, listening, overlay }: {
+  visuals: PartVisuals
+  legend: LegendItem[]
   focus: Focus
   /** Parts the view should frame: a pinned record, else the agent's active parts. */
   framed: string[]
@@ -40,7 +38,7 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
   const highlighted = new Set([...focus.touchedPartIds, ...framed])
   const schematic = (
     <div className="absolute inset-0 p-6 pt-10">
-      <Schematic readiness={readiness} highlighted={highlighted} onSelectPart={onSelectPart} />
+      <Schematic visuals={visuals} highlighted={highlighted} onSelectPart={onSelectPart} />
     </div>
   )
   const show3d = webgl && mode === '3d'
@@ -51,7 +49,7 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
     <div className="grid-backdrop relative h-full w-full overflow-hidden">
       {show3d ? (
         <div className="absolute inset-0">
-          <TwinCanvas readiness={readiness} focus={focus} framed={framed} exploded={exploded} listening={listening} onSelectPart={onSelectPart} />
+          <TwinCanvas visuals={visuals} focus={focus} framed={framed} exploded={exploded} listening={listening} onSelectPart={onSelectPart} />
         </div>
       ) : webgl !== null && schematic}
 
@@ -65,7 +63,7 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
         {/* Up to four framed parts are named; more than that is a region, not a list. */}
         {framedParts.length > 0 && framedParts.length <= 4 && (
           <div className="hidden flex-col items-start gap-1 sm:flex">
-            {framedParts.map((p) => <PartLabel key={p.id} id={p.id} name={p.name} status={readiness.parts[p.id]} />)}
+            {framedParts.map((p) => <PartLabel key={p.id} id={p.id} name={p.name} visual={visuals[p.id] ?? NO_VISUAL} />)}
           </div>
         )}
       </div>
@@ -86,8 +84,8 @@ export function TwinPanel({ readiness, focus, framed, onSelectPart, listening, o
       </div>
 
       <ul className="pointer-events-none absolute bottom-2.5 left-3 flex max-w-[calc(100%-7.5rem)] flex-wrap gap-x-3 gap-y-1 font-mono text-[0.62rem] text-muted">
-        {LEGEND.map((s) => (
-          <li key={s} className="flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: STATUS[s].color }} />{STATUS[s].label}</li>
+        {legend.map((l) => (
+          <li key={l.label} className="flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: l.hex }} />{l.label}</li>
         ))}
       </ul>
       {overlay}

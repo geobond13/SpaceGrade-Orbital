@@ -21,6 +21,10 @@ export interface Channel {
   unit: string
   partId: string
   decimals: number
+  /** Plot on a log axis (probabilities). */
+  log?: boolean
+  /** Values the y-axis always includes, so noise on a flat line doesn't fill the chart. */
+  span?: [number, number]
   /** What the vehicle reports. */
   value(t: number, actions: ExecutedAction[]): number
   /** What a model built from the spec sheet predicts. Drawn dashed. */
@@ -36,6 +40,10 @@ export interface Scenario {
   range: Window
   /** Default telemetry window around "now". */
   view: Window
+  /** Operations timeline window. */
+  timeline: Window
+  /** Where playback starts. */
+  startT: number
   /** Playback speeds offered, sim minutes per real second. */
   speeds: number[]
   channels: Channel[]
@@ -84,7 +92,9 @@ const valveLeak: Scenario = {
   missionDay: A_DAY,
   range: { start: -7 * 1440, end: 1440 },
   view: { start: -7 * 1440, end: 60 },
-  speeds: [60, 600, 3600],
+  timeline: { start: -20, end: 260 },
+  startT: 4,
+  speeds: [2, 30, 240],
   eclipses: aEclipses,
   passes: [
     { id: 'PASS-A1', station: 'Svalbard', attended: true, start: 140, end: 151 },
@@ -145,6 +155,8 @@ const conjunction: Scenario = {
   missionDay: 63,
   range: { start: -60, end: 180 },
   view: { start: -30, end: 150 },
+  timeline: { start: -15, end: 160 },
+  startT: 0,
   speeds: [6, 30, 60],
   eclipses: eclipsesFrom(-20, { start: -60, end: 180 }),
   passes: [
@@ -156,15 +168,15 @@ const conjunction: Scenario = {
   pedigree: ['NCR-002', 'P-PROP-05', 'REQ-PROP-028'],
   channels: [
     {
-      id: 'TM-CONJ-01', label: 'Predicted miss distance', unit: 'm', partId: 'P-STR-01', decimals: 0,
+      id: 'TM-CONJ-01', label: 'Predicted miss distance', unit: 'm', partId: 'P-STR-01', decimals: 0, span: [0, 1400],
       value: (t, a) => (t < 2 ? NaN : missDistance(t, a)),
     },
     {
-      id: 'TM-CONJ-02', label: 'Collision probability', unit: '', partId: 'P-STR-01', decimals: 7,
+      id: 'TM-CONJ-02', label: 'Collision probability', unit: '', partId: 'P-STR-01', decimals: 7, log: true, span: [1e-7, 1e-3],
       value: (t, a) => (t < 2 ? NaN : pcFor(missDistance(t, a))),
     },
     {
-      id: 'TM-PROP-05', label: 'Catalyst bed temperature', unit: '°C', partId: 'P-PROP-05', decimals: 0,
+      id: 'TM-PROP-05', label: 'Catalyst bed temperature', unit: '°C', partId: 'P-PROP-05', decimals: 0, span: [0, 360],
       value: (t, a) => {
         const burn = burnOf(a)
         return bedTempC(burn ? t - burn.t : 0, true) + 0.6 * noise(5, t)
@@ -231,6 +243,8 @@ const eclipsePower: Scenario = {
   missionDay: 88,
   range: cRange,
   view: { start: -220, end: 140 },
+  timeline: { start: -30, end: 200 },
+  startT: 1,
   speeds: [6, 30, 60],
   eclipses: cEclipses,
   passes: [
@@ -252,11 +266,11 @@ const eclipsePower: Scenario = {
       specModel: (t, a) => packVoltage(socAt(t, false, a), busLoadW(t, a)),
     },
     {
-      id: 'TM-PWR-03', label: 'Bus load', unit: 'W', partId: 'P-PWR-06', decimals: 0,
+      id: 'TM-PWR-03', label: 'Bus load', unit: 'W', partId: 'P-PWR-06', decimals: 0, span: [0, 160],
       value: (t, a) => busLoadW(t, a) + 0.8 * noise(8, t),
     },
     {
-      id: 'TM-COM-01', label: 'X-band transmitter power', unit: 'W', partId: 'P-COM-05', decimals: 0,
+      id: 'TM-COM-01', label: 'X-band transmitter power', unit: 'W', partId: 'P-COM-05', decimals: 0, span: [0, 70],
       value: (t, a) => (t >= XBAND.start && t < XBAND.end && !shed(a) ? XBAND.watts : 0),
     },
   ],
