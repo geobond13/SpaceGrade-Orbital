@@ -3,7 +3,7 @@
 import { programData } from '@/data/program'
 import { RECORD_ID } from '@/lib/agent/citations'
 import { CitationChip } from './citation-chip'
-import { channelById, CONJUNCTION_EVENT, XBAND_SESSION } from '@/lib/flight/scenarios'
+import { channelById, CONJUNCTION_EVENT, OM_BURN, XBAND_SESSION } from '@/lib/flight/scenarios'
 import { eventById } from '@/lib/flight/fdir'
 
 const COLLECTIONS = [
@@ -26,6 +26,7 @@ function findRecord(id: string): { kind: string; record: Record<string, unknown>
   const ev = eventById(id)
   if (ev) return { kind: 'FDIR event', record: { title: ev.rule, severity: ev.severity, at: `T+${ev.t} min`, channel: ev.channel, partId: ev.partId, summary: ev.summary } }
   if (id === CONJUNCTION_EVENT.cdm) return { kind: 'Conjunction data message', record: { title: CONJUNCTION_EVENT.object, closestApproach: `T+${CONJUNCTION_EVENT.tca} min`, predictedMissM: CONJUNCTION_EVENT.missM, collisionProbability: CONJUNCTION_EVENT.pc.toExponential(1) } }
+  if (id === OM_BURN.id) return { kind: 'Scheduled burn', record: { title: 'Orbit maintenance burn', scheduled: `T+${OM_BURN.t} min`, durationMin: OM_BURN.durationMin, deltaVMs: OM_BURN.deltaVMs } }
   if (id === XBAND_SESSION.id) return { kind: 'Payload session', record: { title: 'X-band payload downlink', start: `T+${XBAND_SESSION.start} min`, end: `T+${XBAND_SESSION.end} min`, powerW: XBAND_SESSION.watts } }
   return undefined
 }

@@ -2,7 +2,8 @@
 // FDIR saw the symptom, red where the build record located the cause, cyan
 // while an action is running. Pure, so the twin and tests agree.
 
-import { burnPlan, XBAND_SESSION, type ExecutedAction } from './scenarios'
+import { burnPlan, OM_BURN, retimedBurnT, XBAND_SESSION, type ExecutedAction } from './scenarios'
+import { preheatMinutes } from './physics'
 import type { FlightEvent } from './fdir'
 import { db } from '@/lib/tools/lookup'
 
@@ -35,6 +36,12 @@ export function partHealth(t: number, fired: FlightEvent[], causeNcrs: string[],
       // Heater on from the command; thrusters fire for a couple of minutes at the planned burn time.
       if (t >= a.t && t < plan.burnT + 2) mark('P-PROP-05', 'commanded')
       if (t >= plan.burnT && t < plan.burnT + 2) mark('P-PROP-04', 'commanded')
+    }
+    if (a.kind === 'BURN_RETIME') {
+      // The held burn runs later: preheat, then ignition on a fresh star tracker solution.
+      const burnT = retimedBurnT()
+      if (t >= burnT - preheatMinutes(true) && t < burnT + OM_BURN.durationMin) mark('P-PROP-05', 'commanded')
+      if (t >= burnT && t < burnT + OM_BURN.durationMin) mark('P-PROP-04', 'commanded')
     }
     if (a.kind === 'PAYLOAD_LOAD_SHED' && t < XBAND_SESSION.end) mark('P-COM-05', 'shed')
   }

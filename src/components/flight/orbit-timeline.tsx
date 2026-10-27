@@ -1,7 +1,7 @@
 'use client'
 
-import type { Scenario } from '@/lib/flight/scenarios'
-import { nextContact } from '@/lib/flight/scenarios'
+import type { ExecutedAction, Scenario } from '@/lib/flight/scenarios'
+import { nextContact, scheduleFor } from '@/lib/flight/scenarios'
 import type { FlightEvent } from '@/lib/flight/fdir'
 import type { Decision } from '@/lib/flight/autonomy'
 import { useWidth } from './use-width'
@@ -10,9 +10,10 @@ import { fmtT } from './telemetry-strips'
 const ROW = { axis: 14, passes: 34, sched: 56, h: 92 }
 
 /** Operations timeline: eclipses, ground passes, payload sessions, FDIR events, decision deadlines, and the gap with no operator. */
-export function OrbitTimeline({ scenario, t, fired, decisions }: {
+export function OrbitTimeline({ scenario, t, fired, decisions, actions }: {
   scenario: Scenario
   t: number
+  actions: ExecutedAction[]
   fired: FlightEvent[]
   decisions: Decision[]
 }) {
@@ -32,7 +33,7 @@ export function OrbitTimeline({ scenario, t, fired, decisions }: {
         <h2 className="panel-title">Operations timeline</h2>
         <span className="flex flex-wrap gap-x-3 font-mono text-[0.6rem] text-muted">
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-ok/70" />operator pass</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-super/70" />payload session</span>
+          <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-super/70" />scheduled activity</span>
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-bad/25 ring-1 ring-bad/50" />no operator reachable</span>
         </span>
       </div>
@@ -69,7 +70,7 @@ export function OrbitTimeline({ scenario, t, fired, decisions }: {
               <text x={x(p.end) + 3} y={ROW.passes} fontSize={8} fill="var(--muted)">{p.attended ? p.station : 'downlink (no operator)'}</text>
             </g>
           ))}
-          {scenario.schedule.filter((s) => s.end > start && s.start < end).map((s) => (
+          {scheduleFor(scenario, actions).filter((s) => s.end > start && s.start < end).map((s) => (
             <g key={s.id}>
               <rect x={x(s.start)} y={ROW.sched - 9} width={Math.max(3, x(s.end) - x(s.start))} height={12} rx={2} fill="var(--super)" fillOpacity={0.7} />
               <text x={x(s.end) + 3} y={ROW.sched} fontSize={8} fill="var(--muted)">{s.id}</text>

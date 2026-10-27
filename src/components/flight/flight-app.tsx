@@ -190,7 +190,7 @@ export function FlightApp() {
           </div>
 
           <div className="shrink-0 border-b border-line">
-            <OrbitTimeline scenario={scenario} t={simT} fired={fired} decisions={decisions} />
+            <OrbitTimeline scenario={scenario} t={simT} fired={fired} decisions={decisions} actions={actions} />
           </div>
 
           <div className="space-y-4 px-4 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto sm:px-5">

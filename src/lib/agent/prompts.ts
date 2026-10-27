@@ -16,6 +16,8 @@ export interface AgentMode {
   tools: ToolDef[]
   /** Planner guidance after the generic rules. */
   planning: string
+  /** Plan length, e.g. '2 to 5'. */
+  steps?: string
   executorRules: string
   answerRules: string
   /** Used when the planner returns nothing usable. */
@@ -45,7 +47,7 @@ ${mode.context}
 Tools available to the executor:
 ${mode.tools.map((t) => `- ${t.name}: ${t.description}`).join('\n')}
 
-Write a short plan (2 to 5 steps) for answering the request with these tools. Each step names exactly one tool and has a distinct goal.
+Write a short plan (${mode.steps ?? '2 to 5'} steps) for answering the request with these tools. Each step names exactly one tool and has a distinct goal.
 ${mode.planning}
 Reply with JSON only, no prose: {"steps":[{"goal":"<what this step finds out>","tool":"<tool name>"}]}`
 }

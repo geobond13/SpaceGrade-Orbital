@@ -75,6 +75,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   const messages: Msg[] = [{ role: 'system', content: '' }, { role: 'user', content: question }]
   const cache = new Map<string, string>()
   const called: string[] = []
+  const proposed = new Set<string>()
   for (let round = 1; round <= agentConfig.caps.maxRounds; round++) {
     const done = planProgress(plan, called)
     // Stop as soon as the plan is covered; a separate "I'm done" round costs Nano 5-25 s of reasoning.
@@ -114,6 +115,14 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
         continue
       }
       const result = runTool(call.function.name, call.function.arguments, { tools: mode.tools, ctx })
+      // Proposing the same action twice would use up a plan step meant for a different one.
+      if (result.decision && proposed.has(result.decision.kind)) {
+        const msg = `${result.decision.kind} was already proposed; propose the different action this step plans`
+        emit({ type: 'tool_result', callId: call.id, name: call.function.name, summary: `guardrail: ${msg}`, citations: [], ms: 0 })
+        messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: msg }) })
+        continue
+      }
+      if (result.decision) proposed.add(result.decision.kind)
       totals.toolCalls++
       called.push(call.function.name)
       for (const c of result.citations) if (!seen.has(c.id)) seen.set(c.id, c)
@@ -184,7 +193,7 @@ async function routeOnce(
   const start = Date.now()
   // Nemotron Nano only calls tools reliably with reasoning on, so give it room to think.
   const res = await ai.chat.completions.create({
-    model: modelFor(role), max_tokens: 2500, temperature: 0.2, tools: specs, messages,
+    model: modelFor(role), max_tokens: 4000, temperature: 0.2, tools: specs, messages,
     tool_choice: forceTool ? { type: 'function', function: { name: forceTool } } : 'auto',
   }, { signal })
   record(`route ${round}`, role, res.usage, Date.now() - start)
@@ -215,7 +224,8 @@ export function parsePlan(content: string, tools: ToolDef[] = TOOLS, fallbackToo
     const steps = (parsed.steps ?? [])
       .filter((s) => typeof s.goal === 'string' && typeof s.tool === 'string' && names.has(s.tool))
       .map((s) => ({ goal: s.goal as string, tool: s.tool as string }))
-      .filter((s, i, all) => i === 0 || all[i - 1].tool !== s.tool)
+      // Repeated lookups collapse; two proposals in a row are two different actions.
+      .filter((s, i, all) => i === 0 || all[i - 1].tool !== s.tool || s.tool === 'propose_action')
     if (steps.length) return steps.slice(0, 6)
   } catch { /* fall through */ }
   return [{ goal: 'Find the relevant records', tool: fallbackTool }]

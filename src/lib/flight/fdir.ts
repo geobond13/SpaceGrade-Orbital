@@ -1,7 +1,7 @@
 // Onboard-style fault detection: fixed rules, no model in the loop. A rule
 // firing is what wakes the agent; deciding what it means is the agent's job.
 
-import { CONJUNCTION_EVENT, eclipseDodPct, SCENARIOS, sample, type ScenarioId } from './scenarios'
+import { CONJUNCTION_EVENT, eclipseDodPct, knowledgeErrorDeg, OM_BURN, SCENARIOS, sample, sunAngleDeg, TRACKER, TRACKER_OUTAGES, type ScenarioId } from './scenarios'
 import { BATTERY } from './physics'
 
 export interface FlightEvent {
@@ -64,9 +64,22 @@ function eclipsePowerEvents(): FlightEvent[] {
   }]
 }
 
+function trackerEvents(): FlightEvent[] {
+  const t = 4
+  const recent = TRACKER_OUTAGES.filter((o) => o.end <= t).slice(-3)
+  if (recent.length < 3 || recent.some((o) => o.end - o.start < 15)) return []
+  const peak = Math.max(...recent.map((o) => knowledgeErrorDeg(o.end - 0.01)))
+  const minSun = Math.min(...recent.map((o) => sunAngleDeg((o.start + o.end) / 2)))
+  return [{
+    id: 'FE-401', scenario: 'tracker-dropout', t, severity: 'warning', rule: 'ST-INVALID-3O', channel: 'TM-ADCS-02', partId: 'P-ADCS-02',
+    summary: `Star tracker invalid in each of the last 3 orbits (${recent.map((o) => Math.round(o.end - o.start)).join(', ')} min). Attitude propagated on the IMU alone; peak knowledge error ${peak.toFixed(2)}° (limit 0.02°). Sun angle never went below ${minSun.toFixed(0)}° (exclusion limit ${TRACKER.specExclusionDeg}°). Tracker health counter 3 of 5: at 5 the vehicle declares the tracker failed and enters safe mode. ${OM_BURN.id} burn scheduled at T+${OM_BURN.t} min.`,
+  }]
+}
+
 export function detect(scenario: ScenarioId): FlightEvent[] {
   if (scenario === 'valve-leak') return valveLeakEvents()
   if (scenario === 'conjunction') return conjunctionEvents()
+  if (scenario === 'tracker-dropout') return trackerEvents()
   return eclipsePowerEvents()
 }
 

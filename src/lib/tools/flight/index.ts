@@ -4,7 +4,7 @@
 
 import type { ToolCtx, ToolDef, ToolResult } from '../types'
 import { cite, db, isOpen, resolveParts, str, verificationStatus } from '../lookup'
-import { channelById, CONJUNCTION_EVENT, nextContact, sample, SCENARIOS, XBAND_SESSION, type Channel, type ScenarioId } from '@/lib/flight/scenarios'
+import { channelById, CONJUNCTION_EVENT, falseSafeModeT, knowledgeErrorDeg, trackerHealthCount, nextContact, OM_BURN, sample, scheduleFor, SCENARIOS, sunAngleDeg, TRACKER, TRACKER_OUTAGES, XBAND_SESSION, type Channel, type ScenarioId } from '@/lib/flight/scenarios'
 import { linearFit } from '@/lib/flight/fdir'
 import { ACTION_CLASSES, decide } from '@/lib/flight/autonomy'
 import { dayDeltaVBelowRequirement, deltaVAtEndOfLife, leakFromSlope, TANK } from '@/lib/flight/physics'
@@ -35,7 +35,7 @@ function channelsFor(scenario: ScenarioId, args: Record<string, unknown>): Chann
 
 export const getTelemetry: ToolDef = {
   name: 'get_telemetry',
-  description: 'Read spacecraft telemetry up to now: latest value, range, fitted trend, and the residual against a model built from the spec sheet. Filter by channel id or name (e.g. "tank pressure", "battery voltage", "miss distance") or by part. Pressure channels include the equivalent helium leak rate and an end-of-life delta-v projection.',
+  description: 'Read spacecraft telemetry up to now: latest value, range, fitted trend, and the residual against a model built from the spec sheet. Filter by channel id or name (e.g. "tank pressure", "battery voltage", "miss distance", "star tracker") or by part. Pressure channels include the equivalent helium leak rate and an end-of-life delta-v projection; the star tracker channel lists each outage with its sun angle.',
   parameters: {
     type: 'object',
     properties: {
@@ -81,6 +81,23 @@ export const getTelemetry: ToolDef = {
       if (c.unit === 'V' && c.specModel) {
         out.residualAtEclipseEnds = s.eclipses.filter((e) => e.end <= ctx.t && e.end >= from)
           .map((e) => ({ eclipseEnd: rel(e.end), residualV: round(c.value(e.end - 0.5, ctx.actions) - c.specModel!(e.end - 0.5, ctx.actions), 3) }))
+      }
+      if (c.id === 'TM-ADCS-02') {
+        // Outages seen so far, with the sun geometry at loss and reacquisition: the evidence for a stray-light limit.
+        const seen = TRACKER_OUTAGES.filter((o) => o.start >= from && o.start < ctx.t)
+        out.outages = seen.map((o) => ({
+          lost: rel(o.start), reacquired: o.end <= ctx.t ? rel(o.end) : 'not yet', minutes: o.end <= ctx.t ? Math.round(o.end - o.start) : null,
+          sunAngleAtLossDeg: round(sunAngleDeg(o.start), 1), sunAngleAtReacquireDeg: o.end <= ctx.t ? round(sunAngleDeg(o.end), 1) : null,
+          minSunAngleDeg: round(sunAngleDeg((o.start + o.end) / 2), 1), peakKnowledgeErrorDeg: round(knowledgeErrorDeg(Math.min(o.end, ctx.t) - 0.01), 3),
+        }))
+        out.sunExclusionSpecDeg = TRACKER.specExclusionDeg
+        out.specModelPredictsOutages = false
+        out.imuOnlyDriftDegPerMin = TRACKER.imuDriftDegPerMin
+        const trip = falseSafeModeT()
+        out.healthCounter = { now: trackerHealthCount(ctx.t, ctx.actions), safeModeAt: TRACKER.safeModeCount, reachesSafeModeAt: trip !== undefined && trackerHealthCount(trip, ctx.actions) >= TRACKER.safeModeCount ? rel(trip) : null, note: 'Every outage counts as a tracker fault, whatever the sun angle.' }
+        // Sun geometry repeats every orbit, so the observed loss angle predicts the next outage.
+        const next = TRACKER_OUTAGES.find((o) => o.start >= ctx.t)
+        if (next) out.nextOutageIfSameLossAngle = { start: rel(next.start), end: rel(next.end), knowledgeErrorAtEndDeg: round(knowledgeErrorDeg(next.end - 0.01), 2) }
       }
       if (c.id.startsWith('TM-CONJ')) {
         out.conjunction = {
@@ -149,7 +166,11 @@ export const getContactWindows: ToolDef = {
       nextOperatorContact: contact ? { station: contact.station, aos: rel(contact.start), minutesFromNow: Math.round(contact.start - ctx.t) } : null,
       passes: s.passes.filter((p) => p.end > ctx.t).map((p) => ({ station: p.station, aos: rel(p.start), los: rel(p.end), operatorAttended: p.attended })),
       eclipses: s.eclipses.filter((e) => e.end > ctx.t).slice(0, 3).map((e) => ({ start: rel(e.start), end: rel(e.end) })),
-      scheduled: s.schedule.filter((x) => x.end > ctx.t).map((x) => ({ id: x.id, label: x.label, start: rel(x.start), end: rel(x.end), ...(x.id === XBAND_SESSION.id ? { powerW: XBAND_SESSION.watts } : {}) })),
+      scheduled: scheduleFor(s, ctx.actions).filter((x) => x.end > ctx.t).map((x) => ({
+        id: x.id, label: x.label, start: rel(x.start), end: rel(x.end),
+        ...(x.id === XBAND_SESSION.id ? { powerW: XBAND_SESSION.watts } : {}),
+        ...(x.id === OM_BURN.id ? { deltaVMs: OM_BURN.deltaVMs, needs: 'attitude knowledge within 0.02° (REQ-ADCS-010) at ignition; the sequencer fires it automatically' } : {}),
+      })),
       events: s.marks.filter((m) => m.t > ctx.t).map((m) => ({ label: m.label, at: rel(m.t), minutesFromNow: Math.round(m.t - ctx.t) })),
     }
     return {
@@ -171,6 +192,8 @@ export const proposeAction: ToolDef = {
     properties: {
       kind: { type: 'string', enum: KINDS },
       session: { type: 'string', description: 'PAYLOAD_LOAD_SHED: the session id to shed, e.g. XB-0412' },
+      burn: { type: 'string', description: 'BURN_RETIME: the scheduled burn id, e.g. OM-0417. The policy picks the new time.' },
+      table: { type: 'string', description: 'ONBOARD_TABLE_UPDATE: which onboard table or limit, e.g. star tracker sun exclusion angle. The policy derives the value from flight data.' },
       procedure: { type: 'string', description: 'PROPULSION_PROCEDURE: what to do' },
       rationale: { type: 'string', description: 'One line: why, citing records' },
     },
@@ -180,7 +203,7 @@ export const proposeAction: ToolDef = {
     if (!ctx) return needCtx()
     const kind = KINDS.find((k) => k === str(args.kind)?.toUpperCase())
     if (!kind) return { data: { error: `kind must be one of ${KINDS.join(', ')}` }, citations: [], summary: 'unknown action kind' }
-    const params = { ...(str(args.session) ? { session: str(args.session) } : {}), ...(str(args.procedure) ? { procedure: str(args.procedure) } : {}), rationale: str(args.rationale) }
+    const params = { ...(str(args.session) ? { session: str(args.session) } : {}), ...(str(args.burn) ? { burn: str(args.burn) } : {}), ...(str(args.table) ? { table: str(args.table) } : {}), ...(str(args.procedure) ? { procedure: str(args.procedure) } : {}), rationale: str(args.rationale) }
     const d = decide(ctx.scenario, ctx.t, kind, params, ctx.actions)
     const verb = d.tier === 'auto' ? 'EXECUTED autonomously' : d.tier === 'gated' ? 'AWAITING operator approval' : 'REFUSED'
     return {

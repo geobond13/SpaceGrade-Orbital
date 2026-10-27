@@ -3,7 +3,7 @@
 // or is refused. Authority depends on one question: can a human be reached
 // before the decision deadline?
 
-import { burnPlan, CONJUNCTION_EVENT, eclipseDodPct, nextContact, SCENARIOS, XBAND_SESSION, type ActionKind, type ExecutedAction, type ScenarioId } from './scenarios'
+import { burnPlan, CONJUNCTION_EVENT, eclipseDodPct, falseSafeModeT, knowledgeErrorDeg, nextContact, OM_BURN, retimedBurnT, SCENARIOS, sunAngleDeg, TRACKER, TRACKER_OUTAGES, XBAND_SESSION, type ActionKind, type ExecutedAction, type ScenarioId } from './scenarios'
 import { BATTERY, CONJUNCTION, deltaVAtEndOfLife, preheatMinutes, TANK } from './physics'
 
 export type Tier = 'auto' | 'gated' | 'refused'
@@ -26,6 +26,8 @@ export interface Decision {
 export const ACTION_CLASSES: Record<ActionKind, { label: string; policy: string }> = {
   COLLISION_AVOIDANCE_BURN: { label: 'Collision avoidance burn', policy: 'Auto only if no operator can be reached before the deadline and the burn is inside the envelope (Δv ≤ 0.5 m/s, delta-v budget kept).' },
   PAYLOAD_LOAD_SHED: { label: 'Shed payload load', policy: 'Auto if the deadline is before the next contact. Payload loads only; bus and survival heaters are never shed.' },
+  BURN_RETIME: { label: 'Hold and retime burn', policy: 'Auto if the burn would fire before the next contact, the new time is tracker-valid on the as-built model, and the delay is at most one orbit. Holding a burn never adds a burn.' },
+  ONBOARD_TABLE_UPDATE: { label: 'Onboard table update', policy: 'Always needs operator approval: it changes what the vehicle decides on its own. Use when flight data and the build record show a spec value in an onboard table is wrong for this vehicle.' },
   PROPULSION_PROCEDURE: { label: 'Propulsion procedure', policy: 'Always needs operator approval.' },
   FLIGHT_NCR_DRAFT: { label: 'Draft flight NCR', policy: 'Auto: documentation only, no vehicle effect. Use the draft_flight_ncr tool.' },
 }
@@ -88,6 +90,54 @@ export function decide(scenario: ScenarioId, t: number, kind: ActionKind, params
     return {
       kind, tier, deadline, nextContact: contact, checks, params: { session },
       reason: tier === 'auto' ? `Session starts ${fmt(deadline)}, before the next contact; payload-only shed is pre-approved.` : tier === 'gated' ? 'An operator is reachable before the session.' : 'Not a payload load.',
+    }
+  }
+
+  if (kind === 'BURN_RETIME') {
+    if (scenario !== 'tracker-dropout') return { kind, tier: 'refused', reason: 'No scheduled burn to hold.', checks: [], params }
+    if (actions.some((a) => a.kind === kind)) return { kind, tier: 'refused', reason: 'The burn is already held.', checks: [], params }
+    const deadline = OM_BURN.t
+    const outage = TRACKER_OUTAGES.find((o) => OM_BURN.t >= o.start && OM_BURN.t < o.end)
+    const toT = retimedBurnT()
+    const delay = toT - OM_BURN.t
+    const newValid = !TRACKER_OUTAGES.some((o) => toT >= o.start - 5 && toT < o.end + TRACKER.recalMin)
+    const checks: Check[] = [
+      { label: 'Tracker at the scheduled burn (as-built)', ok: null, source: 'NCR-004',
+        detail: outage ? `blinded ${fmt(outage.start)} to ${fmt(outage.end)} (sun below ${TRACKER.asBuiltExclusionDeg}° as flown; spec model says valid down to ${TRACKER.specExclusionDeg}°)` : 'valid' },
+      { label: 'Attitude knowledge at the burn', ok: null, source: 'REQ-ADCS-010',
+        detail: `${knowledgeErrorDeg(OM_BURN.t).toFixed(2)}° on the IMU alone at ${fmt(OM_BURN.t)} vs 0.02° required` },
+      { label: 'New time tracker-valid', ok: newValid, detail: `${fmt(toT)}: ${TRACKER.recalMin} min after reacquisition, sun ${sunAngleDeg(toT).toFixed(0)}°` },
+      { label: 'Delay within one orbit', ok: delay <= 95, detail: `${delay.toFixed(0)} min` },
+      { label: 'Decision deadline', ok: t <= deadline, detail: `the sequencer fires ${OM_BURN.id} at ${fmt(deadline)} unless held` },
+      { label: 'Operator reachable before deadline', ok: null, detail: `${contact && contact.start < deadline ? 'yes' : 'no'}: ${contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled'}` },
+    ]
+    const tier = tierByDeadline(t, deadline, contact, newValid && delay <= 95 && outage !== undefined)
+    return {
+      kind, tier, deadline, nextContact: contact, checks, params: { burn: OM_BURN.id, fromT: OM_BURN.t, toT },
+      reason: tier === 'auto' ? `${OM_BURN.id} would fire at ${fmt(deadline)} with the tracker blinded, before the next contact; held to ${fmt(toT)}.`
+        : tier === 'gated' ? 'An operator is reachable before the burn.' : outage ? 'Outside the autonomous envelope.' : 'The tracker is valid at the scheduled burn; nothing to hold.',
+    }
+  }
+
+  if (kind === 'ONBOARD_TABLE_UPDATE') {
+    if (scenario !== 'tracker-dropout') {
+      return { kind, tier: 'gated', nextContact: contact, params, reason: 'Onboard table changes always need operator approval.', checks: [{ label: 'Table', ok: null, detail: String(params.table ?? 'unspecified') }] }
+    }
+    if (actions.some((a) => a.kind === kind)) return { kind, tier: 'refused', reason: 'The table is already updated.', checks: [], params }
+    const seen = TRACKER_OUTAGES.filter((o) => o.start < t)
+    const lossDeg = Math.max(...seen.map((o) => sunAngleDeg(o.start)))
+    const tableDeg = Math.ceil(lossDeg)
+    const deadline = falseSafeModeT()
+    const checks: Check[] = [
+      { label: 'Exclusion angle as flown', ok: null, source: 'NCR-004', detail: `tracker lost at ${lossDeg.toFixed(1)}° sun angle in ${seen.length} outages; table uses the ${TRACKER.specExclusionDeg}° spec value (REQ-ADCS-021 never tested)` },
+      { label: 'Proposed table value', ok: tableDeg > TRACKER.specExclusionDeg && tableDeg <= 60, detail: `${tableDeg}°: outages inside it are expected, so they no longer count toward a tracker failure` },
+      { label: 'Without it', ok: null, detail: deadline !== undefined ? `counter reaches ${TRACKER.safeModeCount} at ${fmt(deadline)}: tracker declared failed, false safe mode` : 'no counter trip in view' },
+      { label: 'Operator reachable before then', ok: null, detail: `${contact && deadline !== undefined && contact.start < deadline ? 'yes' : 'no'}: ${contact ? `next contact ${contact.station} at ${fmt(contact.start)}` : 'no contact scheduled'}` },
+    ]
+    return {
+      kind, tier: deadline !== undefined && t > deadline ? 'refused' : 'gated', deadline, nextContact: contact, checks,
+      params: { table: 'ST_SUN_EXCLUSION_DEG', from: TRACKER.specExclusionDeg, to: tableDeg },
+      reason: `Changes onboard fault detection, so an operator decides; ${contact ? `${contact.station} at ${fmt(contact.start)}` : 'the next contact'} is before the counter trips.`,
     }
   }
 

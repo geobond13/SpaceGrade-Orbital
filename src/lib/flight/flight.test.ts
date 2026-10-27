@@ -85,3 +85,38 @@ describe('flight health on the twin', () => {
     expect(partHealth(50, [], [], [{ kind: 'PAYLOAD_LOAD_SHED', t: 4, params: {} }])['P-COM-05']).toBe('shed')
   })
 })
+
+describe('blinded star tracker (NCR-004)', () => {
+  it('the spec model predicts no outages; the as-built tracker drops out every orbit for ~23 min', async () => {
+    const { TRACKER_OUTAGES, SCENARIOS: S } = await import('./scenarios')
+    const rate = S['tracker-dropout'].channels.find((c) => c.id === 'TM-ADCS-02')!
+    expect(sample(rate, -300, 200, 400, []).every((p) => p.spec === 10)).toBe(true)
+    expect(TRACKER_OUTAGES.length).toBeGreaterThanOrEqual(4)
+    for (const o of TRACKER_OUTAGES) expect(o.end - o.start).toBeGreaterThan(20)
+  })
+
+  it('FDIR fires FE-401 and the policy holds the burn autonomously to a tracker-valid time', async () => {
+    const { retimedBurnT, knowledgeErrorDeg, OM_BURN } = await import('./scenarios')
+    expect(detect('tracker-dropout').map((e) => [e.id, e.t])).toEqual([['FE-401', 4]])
+    expect(knowledgeErrorDeg(OM_BURN.t)).toBeGreaterThan(0.1)
+    expect(knowledgeErrorDeg(retimedBurnT())).toBeLessThan(0.02)
+    const d = decide('tracker-dropout', 5, 'BURN_RETIME', { burn: 'OM-0417' }, [])
+    expect(d.tier).toBe('auto')
+    expect(d.params.toT).toBe(retimedBurnT())
+    expect(decide('tracker-dropout', 60, 'BURN_RETIME', {}, []).tier).toBe('refused')
+    expect(decide('conjunction', 5, 'BURN_RETIME', {}, []).tier).toBe('refused')
+  })
+})
+
+describe('onboard table update', () => {
+  it('without it the counter trips into a false safe mode; approving it stops the count', async () => {
+    const { trackerHealthCount, falseSafeModeT } = await import('./scenarios')
+    expect(trackerHealthCount(4, [])).toBe(3)
+    expect(trackerHealthCount(170, [])).toBe(5)
+    expect(trackerHealthCount(170, [{ kind: 'ONBOARD_TABLE_UPDATE', t: 72, params: {} }])).toBe(4)
+    const d = decide('tracker-dropout', 5, 'ONBOARD_TABLE_UPDATE', {}, [])
+    expect(d.tier).toBe('gated')
+    expect(d.params.to).toBe(46)
+    expect(d.nextContact!.start).toBeLessThan(falseSafeModeT()!)
+  })
+})

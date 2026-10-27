@@ -1,13 +1,13 @@
-// Three scripted flight situations for KESTREL-1. Each turns one record from
+// Four scripted flight situations for KESTREL-1. Each turns one record from
 // the build pedigree into a flight problem. Times are minutes from "now" (t = 0).
 
 import {
   BATTERY, bedTempC, batteryWh, CONJUNCTION, deltaVForLead, packVoltage, preheatMinutes, tankPressure20C,
 } from './physics'
 
-export type ScenarioId = 'valve-leak' | 'conjunction' | 'eclipse-power'
+export type ScenarioId = 'valve-leak' | 'conjunction' | 'eclipse-power' | 'tracker-dropout'
 
-export type ActionKind = 'COLLISION_AVOIDANCE_BURN' | 'PAYLOAD_LOAD_SHED' | 'PROPULSION_PROCEDURE' | 'FLIGHT_NCR_DRAFT'
+export type ActionKind = 'COLLISION_AVOIDANCE_BURN' | 'PAYLOAD_LOAD_SHED' | 'BURN_RETIME' | 'ONBOARD_TABLE_UPDATE' | 'PROPULSION_PROCEDURE' | 'FLIGHT_NCR_DRAFT'
 
 /** An action that has been executed (autonomously or after approval) at sim time `t`. */
 export interface ExecutedAction { kind: ActionKind; t: number; params: Record<string, unknown> }
@@ -276,7 +276,115 @@ const eclipsePower: Scenario = {
   ],
 }
 
-export const SCENARIOS: Record<ScenarioId, Scenario> = { 'valve-leak': valveLeak, conjunction, 'eclipse-power': eclipsePower }
+// ── D. Star tracker blinded near the sun, IMU drifting ───────────────────────
+
+const D_RANGE = { start: -300, end: 200 }
+const D_SUN_MIN_T = 62 // sun closest to the tracker boresight this orbit
+/** Sun angle from the star tracker boresight over the orbit, degrees. */
+export const sunAngleDeg = (t: number) => 62 - 22 * Math.cos((2 * Math.PI * (t - D_SUN_MIN_T)) / ORBIT_MIN)
+const dEclipses = eclipsesFrom(D_SUN_MIN_T + ORBIT_MIN / 2 + ECLIPSE_MIN / 2, D_RANGE)
+/** Spec (REQ-ADCS-021) vs the stray-light limit flight data shows with NCR-004's thin anodize. */
+export const TRACKER = { specExclusionDeg: 35, asBuiltExclusionDeg: 46, rateHz: 10, validKnowledgeDeg: 0.004, imuDriftDegPerMin: 0.02, recalMin: 10, safeModeCount: 5 }
+const blinded = (t: number, asBuilt: boolean) =>
+  !inAny(t, dEclipses) && sunAngleDeg(t) < (asBuilt ? TRACKER.asBuiltExclusionDeg : TRACKER.specExclusionDeg)
+
+/** Tracker outages over the range, found by stepping the geometry. */
+function outagesFor(asBuilt: boolean): Window[] {
+  const out: Window[] = []
+  let open: number | undefined
+  for (let t = D_RANGE.start; t <= D_RANGE.end; t += 0.25) {
+    const b = blinded(t, asBuilt)
+    if (b && open === undefined) open = t
+    if (!b && open !== undefined) { out.push({ start: open, end: t }); open = undefined }
+  }
+  if (open !== undefined) out.push({ start: open, end: D_RANGE.end })
+  return out
+}
+export const TRACKER_OUTAGES = outagesFor(true)
+const outageAt = (t: number) => TRACKER_OUTAGES.find((w) => t >= w.start && t < w.end)
+
+/** Attitude knowledge error: tight on the tracker, growing at the IMU drift rate while it is blinded. */
+export function knowledgeErrorDeg(t: number): number {
+  const o = outageAt(t)
+  return TRACKER.validKnowledgeDeg + (o ? TRACKER.imuDriftDegPerMin * (t - o.start) : 0)
+}
+
+/**
+ * Onboard tracker health counter: each outage counts (the counter started this pass of outages
+ * at 3), and at 5 the vehicle declares the tracker failed and enters safe mode. An approved
+ * table update masks outages inside the as-flown exclusion angle, so they stop counting.
+ */
+export function trackerHealthCount(t: number, actions: ExecutedAction[]): number {
+  const masked = actions.find((a) => a.kind === 'ONBOARD_TABLE_UPDATE')?.t
+  const counted = TRACKER_OUTAGES.filter((o) => o.start >= -240 && o.start <= t && (masked === undefined || o.start < masked))
+  return Math.min(TRACKER.safeModeCount, counted.length)
+}
+/** When the counter would reach 5 with no table change. */
+export const falseSafeModeT = () => TRACKER_OUTAGES.filter((o) => o.start >= -240)[TRACKER.safeModeCount - 1]?.start
+
+export const OM_BURN = { id: 'OM-0417', t: 58, durationMin: 2, deltaVMs: 0.15 }
+/** Where a held burn goes: the first tracker-valid time after the outage, plus filter recalibration. */
+export function retimedBurnT(): number {
+  const o = outageAt(OM_BURN.t)
+  return o ? Math.ceil(o.end + TRACKER.recalMin) : OM_BURN.t
+}
+export const omBurnT = (actions: ExecutedAction[]) => (actions.some((a) => a.kind === 'BURN_RETIME') ? retimedBurnT() : OM_BURN.t)
+
+const trackerDropout: Scenario = {
+  id: 'tracker-dropout',
+  title: 'Blinded star tracker',
+  tagline: 'The star tracker keeps dropping out, the IMU is drifting, and a burn fires before the next contact.',
+  missionDay: 112,
+  range: D_RANGE,
+  view: { start: -210, end: 120 },
+  timeline: { start: -15, end: 160 },
+  startT: 0,
+  speeds: [6, 30, 60],
+  eclipses: dEclipses,
+  passes: [
+    { id: 'PASS-D1', station: 'Hartebeesthoek', attended: true, start: 70, end: 80 },
+    { id: 'PASS-D2', station: 'Svalbard', attended: true, start: 165, end: 176 },
+  ],
+  schedule: [{ id: OM_BURN.id, label: 'Orbit maintenance burn', start: OM_BURN.t, end: OM_BURN.t + OM_BURN.durationMin }],
+  marks: [],
+  pedigree: ['NCR-004', 'P-ADCS-03', 'REQ-ADCS-021', 'REQ-ADCS-010'],
+  channels: [
+    {
+      id: 'TM-ADCS-01', label: 'Sun angle from tracker boresight', unit: '°', partId: 'P-ADCS-02', decimals: 1, span: [30, 90],
+      value: (t) => sunAngleDeg(t),
+    },
+    {
+      id: 'TM-ADCS-02', label: 'Star tracker solution rate', unit: 'Hz', partId: 'P-ADCS-02', decimals: 1, span: [0, 11],
+      value: (t) => (blinded(t, true) ? 0 : TRACKER.rateHz),
+      specModel: (t) => (blinded(t, false) ? 0 : TRACKER.rateHz),
+    },
+    {
+      id: 'TM-ADCS-03', label: 'Attitude knowledge error (3σ est.)', unit: '°', partId: 'P-ADCS-07', decimals: 3, span: [0, 0.5],
+      value: (t) => knowledgeErrorDeg(t) + 0.0005 * noise(9, t),
+      specModel: () => TRACKER.validKnowledgeDeg,
+    },
+    {
+      id: 'TM-ADCS-04', label: 'Tracker health counter (5 = safe mode)', unit: '', partId: 'P-ADCS-09', decimals: 0, span: [0, 5],
+      value: (t, a) => trackerHealthCount(t, a),
+    },
+    {
+      id: 'TM-PROP-06', label: 'Catalyst bed temperature', unit: '°C', partId: 'P-PROP-05', decimals: 0, span: [0, 360],
+      // The burn sequence preheats the bed for the as-built time (NCR-002) before ignition.
+      value: (t, a) => bedTempC(t - (omBurnT(a) - preheatMinutes(true)), true) + 0.6 * noise(10, t),
+    },
+  ],
+}
+
+/** The schedule as it stands after any executed actions (a held burn moves). */
+export function scheduleFor(s: Scenario, actions: ExecutedAction[]): Scenario['schedule'] {
+  return s.schedule.map((x) => {
+    if (x.id !== OM_BURN.id) return x
+    const t = omBurnT(actions)
+    return { ...x, start: t, end: t + OM_BURN.durationMin }
+  })
+}
+
+export const SCENARIOS: Record<ScenarioId, Scenario> = { 'valve-leak': valveLeak, conjunction, 'eclipse-power': eclipsePower, 'tracker-dropout': trackerDropout }
 export const SCENARIO_IDS = Object.keys(SCENARIOS) as ScenarioId[]
 export const isScenarioId = (x: unknown): x is ScenarioId => typeof x === 'string' && x in SCENARIOS
 

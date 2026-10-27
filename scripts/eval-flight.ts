@@ -8,10 +8,11 @@ import { detect } from '../src/lib/flight/fdir'
 import { SCENARIO_IDS, type ScenarioId } from '../src/lib/flight/scenarios'
 import type { Tier } from '../src/lib/flight/autonomy'
 
-const EXPECT: Record<ScenarioId, { mustCite: string[]; tier: Tier; action: string }> = {
+const EXPECT: Record<ScenarioId, { mustCite: string[]; tier: Tier; action: string; also?: { action: string; tier: Tier } }> = {
   'valve-leak': { mustCite: ['NCR-001', 'TM-PROP-03'], tier: 'gated', action: 'PROPULSION_PROCEDURE' },
   conjunction: { mustCite: ['NCR-002', 'CDM-0412'], tier: 'auto', action: 'COLLISION_AVOIDANCE_BURN' },
   'eclipse-power': { mustCite: ['NCR-005', 'TM-PWR-02'], tier: 'auto', action: 'PAYLOAD_LOAD_SHED' },
+  'tracker-dropout': { mustCite: ['NCR-004', 'TM-ADCS-02'], tier: 'auto', action: 'BURN_RETIME', also: { action: 'ONBOARD_TABLE_UPDATE', tier: 'gated' } },
 }
 
 async function main() {
@@ -39,6 +40,12 @@ async function main() {
       const problems = [
         ...(answer.unknownIds.length ? [`unknown ids: ${answer.unknownIds.join(', ')}`] : []),
         ...EXPECT[id].mustCite.filter((c) => !answer.citations.some((x) => x.id === c)).map((c) => `missing citation ${c}`),
+        ...(() => {
+          const also = EXPECT[id].also
+          if (!also) return []
+          const d = events.find((e) => e.type === 'decision' && e.decision.kind === also.action)
+          return d?.type === 'decision' ? (d.decision.tier === also.tier ? [] : [`${also.action} tier ${d.decision.tier}, expected ${also.tier}`]) : [`no ${also.action} proposed`]
+        })(),
         ...(decision?.type === 'decision' ? (decision.decision.tier === EXPECT[id].tier ? [] : [`tier ${decision.decision.tier}, expected ${EXPECT[id].tier}`]) : [`no ${EXPECT[id].action} proposed`]),
       ]
       if (problems.length) { failures++; console.log('PROBLEMS:', problems) } else console.log('checks: ok')

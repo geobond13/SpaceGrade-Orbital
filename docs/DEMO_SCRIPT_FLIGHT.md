@@ -27,6 +27,17 @@ Click **Slow pressure loss** and **Run scenario**.
 - It projects that the leak strands propellant and breaks REQ-SYS-002 around mission day 710. Propulsion procedures need a human, so the card says **Awaiting operator approval**: click **Approve**.
 - **Back to the build record**: open the drafted flight NCR. The anomaly flows back into SpaceGradeOS.
 
+## Alternative 1:10–1:50 · Blinded star tracker (autonomy that also fixes the vehicle's own rules)
+
+Click **Blinded star tracker** and **Run scenario**.
+
+- The tracker drops out for 23 minutes every orbit with the sun 40–46° off boresight, though the spec says it works down to 35° (the dashed line never dips). On the IMU alone, attitude knowledge drifts to 0.46°.
+- The agent finds **NCR-004**: the baffle's anodize is thin and the sun-exclusion test was never run. The tracker isn't broken; it's blinded. The baffle turns red on the twin.
+- **Executed autonomously:** burn OM-0417 at T+58 would fire on a blinded tracker, and the operator isn't on until T+70, so the policy holds it to T+84.
+- **Awaiting approval:** onboard fault detection is counting outages toward declaring the tracker failed (safe mode at T+146). The agent proposes changing the onboard exclusion table to the 46° seen in flight. Click **Approve**, play at 1 h/s, and the counter stops at 3.
+
+> "That's the roadmap in one scenario: the agent acts where it has to, and asks the operator to update the vehicle's own rules so it stops making the wrong call."
+
 ## 1:40–2:00 · Eclipse power (optional) and close
 
 The weak cell lot (NCR-005) means the next eclipse with an X-band downlink would hit 20.4% depth of discharge against a 20% limit, while the onboard model says 19.6%. The payload session is shed autonomously.
