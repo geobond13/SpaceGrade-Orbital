@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { extractTag } from '@/lib/agent/citations'
 import { deriveFocus, EMPTY_FOCUS, partsForRecord } from '@/lib/focus'
 import { detect, type FlightEvent } from '@/lib/flight/fdir'
-import { channelById, COMMAND_PATH, SCENARIO_IDS, SCENARIOS, scenarioWith, type Conditions, type ExecutedAction, type ScenarioId } from '@/lib/flight/scenarios'
+import { channelById, COMMAND_PATH, recordingName, SCENARIO_IDS, SCENARIOS, scenarioWith, type Conditions, type ExecutedAction, type ScenarioId } from '@/lib/flight/scenarios'
 import { HEALTH, partHealth } from '@/lib/flight/health'
 import { lifecycle, type Verdict } from '@/lib/flight/lifecycle'
 import { asFlown } from '@/lib/flight/as-flown'
@@ -23,6 +23,8 @@ import { TelemetryStrips, fmtT } from './telemetry-strips'
 import { OrbitTimeline } from './orbit-timeline'
 import { DecisionCard } from './decision-card'
 
+/** Changed-condition runs that have a recording in public/recordings (as-built runs always do). */
+const RECORDED_CONDITIONS = new Set(['conjunction--heaterConforming', 'conjunction--operatorOnCall'])
 const LEGEND: LegendItem[] = (['cause', 'watch', 'commanded', 'shed'] as const).map((h) => ({ hex: HEALTH[h].hex, label: HEALTH[h].label }))
 
 interface RunDecision extends Decision { callId: string; run: number; eventT: number }
@@ -47,8 +49,8 @@ export function FlightApp() {
   const events = useMemo(() => detect(scenarioId), [scenarioId])
   const speed = scenario.speeds[speedIdx] ?? scenario.speeds[0]
   const asBuiltDefaults = !Object.values(cond).some(Boolean)
-  // Recordings exist for the as-built vehicle only; a changed condition always runs live.
-  const replaying = source === 'recorded' && asBuiltDefaults
+  // A condition without a recording falls back to a live run, which is labelled as live.
+  const replaying = source === 'recorded'
 
   // Every policy decision across the runs, tagged with the sim time of the event that woke the agent.
   const decisions = useMemo<RunDecision[]>(() => runs.flatMap((r, i) => r.events.flatMap((e) =>
@@ -95,7 +97,7 @@ export function FlightApp() {
       setPinned(null)
       const label = `${e.id} · ${e.summary}`
       if (replaying) {
-        void fetch(`/recordings/${scenarioId}.json`).then((r) => (r.ok ? (r.json() as Promise<Recording>) : Promise.reject(new Error('no recording'))))
+        void fetch(`/recordings/${recordingName(scenarioId, cond)}.json`).then((r) => (r.ok ? (r.json() as Promise<Recording>) : Promise.reject(new Error('no recording'))))
           .then((rec) => replay(rec, label))
           .catch(() => start({ flight: { scenario: scenarioId, eventId: e.id, actions: actionsRef.current, conditions: cond } }, label))
       } else {
@@ -230,7 +232,7 @@ export function FlightApp() {
           <div className="space-y-4 px-4 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto sm:px-5">
             {runs.length === 0 && (
               <Intro scenarioTitle={scenario.title} tagline={scenario.tagline} defs={SCENARIOS[scenarioId].conditionDefs ?? []} cond={cond} locked={conditionsLocked || busy}
-                onCond={(c) => restart(scenarioId, c)} source={source} onSource={setSource} replayable={asBuiltDefaults}
+                onCond={(c) => restart(scenarioId, c)} source={source} onSource={setSource} replayable={asBuiltDefaults || RECORDED_CONDITIONS.has(recordingName(scenarioId, cond))}
                 onRun={() => { if (simT < scenario.range.end) setPlaying(true) }} />
             )}
             {runs.map((r, i) => {
@@ -382,7 +384,7 @@ function Intro({ scenarioTitle, tagline, defs, cond, locked, onCond, source, onS
           ))}
         </div>
       </div>
-      <p className="font-mono text-[0.7rem] text-muted">Simulated telemetry, synthetic build records. The agent never commands the vehicle directly.{!replayable && ' Changed conditions always run live.'}</p>
+      <p className="font-mono text-[0.7rem] text-muted">Simulated telemetry, synthetic build records. The agent never commands the vehicle directly.{!replayable && ' This combination of conditions has no recording, so it runs live.'}</p>
     </div>
   )
 }

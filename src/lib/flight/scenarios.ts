@@ -462,6 +462,10 @@ export function parseConditions(id: ScenarioId, raw: unknown): Conditions {
   const x = (raw ?? {}) as Record<string, unknown>
   return Object.fromEntries(defs.filter((d) => x[d.key] === true).map((d) => [d.key, true]))
 }
+/** File name of a recorded run: the scenario, plus each changed condition (e.g. conjunction--operatorOnCall). */
+export function recordingName(id: ScenarioId, cond: Conditions = {}): string {
+  return [id, ...Object.keys(parseConditions(id, cond)).sort()].join('--')
+}
 export const SCENARIO_IDS = Object.keys(SCENARIOS) as ScenarioId[]
 export const isScenarioId = (x: unknown): x is ScenarioId => typeof x === 'string' && x in SCENARIOS
 
