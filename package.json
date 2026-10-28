@@ -10,7 +10,8 @@
     "test": "vitest run",
     "smoke": "tsx --env-file=.env.local scripts/smoke.ts",
     "eval": "tsx --env-file=.env.local scripts/eval.ts",
-    "eval:flight": "tsx --env-file=.env.local scripts/eval-flight.ts"
+    "eval:flight": "tsx --env-file=.env.local scripts/eval-flight.ts",
+    "record:flight": "tsx --env-file=.env.local scripts/record-flight.ts"
   },
   "dependencies": {
     "@react-three/drei": "10.7.9",

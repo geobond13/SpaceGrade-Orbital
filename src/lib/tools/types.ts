@@ -1,4 +1,4 @@
-import type { ExecutedAction, ScenarioId } from '@/lib/flight/scenarios'
+import type { Conditions, ExecutedAction, ScenarioId } from '@/lib/flight/scenarios'
 import type { Decision } from '@/lib/flight/autonomy'
 
 export type CitationType = 'part' | 'requirement' | 'test' | 'ncr' | 'supplier' | 'quote' | 'telemetry' | 'event' | 'conjunction' | 'session'
@@ -27,6 +27,8 @@ export interface ToolCtx {
   scenario: ScenarioId
   t: number
   actions: ExecutedAction[]
+  /** Viewer-set conditions (e.g. a reworked heater); empty for the as-built vehicle. */
+  cond?: Conditions
 }
 
 export interface ToolDef {

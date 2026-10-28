@@ -104,3 +104,15 @@ export function dayDeltaVBelowRequirement(leakSccs: number, maxDays = 5 * 365): 
   for (let d = 0; d <= maxDays; d += 5) if (deltaVAtEndOfLife(d, leakSccs).deltaVMs < TANK.requiredDeltaVMs) return d
   return undefined
 }
+
+/** Least-squares slope and its standard error. */
+export function linearFit(points: { t: number; v: number }[]) {
+  const n = points.length
+  const mt = points.reduce((s, p) => s + p.t, 0) / n
+  const mv = points.reduce((s, p) => s + p.v, 0) / n
+  const sxx = points.reduce((s, p) => s + (p.t - mt) ** 2, 0)
+  const slope = points.reduce((s, p) => s + (p.t - mt) * (p.v - mv), 0) / sxx
+  const resid = points.reduce((s, p) => s + (p.v - (mv + slope * (p.t - mt))) ** 2, 0)
+  const se = Math.sqrt(resid / Math.max(1, n - 2) / sxx)
+  return { slope, intercept: mv - slope * mt, se, n }
+}

@@ -1,6 +1,7 @@
 import type { Citation } from '@/lib/tools'
 import type { ModelRole } from '../../../agent.config'
 import type { Decision } from '@/lib/flight/autonomy'
+import type { QuantityCheck } from './quantities'
 
 export interface PlanStep { goal: string; tool: string }
 
@@ -23,7 +24,7 @@ export type AgentEvent =
   | { type: 'tool_result'; callId: string; name: string; summary: string; citations: Citation[]; ms: number }
   | { type: 'document'; title: string; markdown: string }
   | { type: 'answer_delta'; text: string }
-  | { type: 'answer'; markdown: string; citations: Citation[]; unknownIds: string[] }
+  | { type: 'answer'; markdown: string; citations: Citation[]; unknownIds: string[]; quantities?: QuantityCheck }
   | { type: 'usage'; usage: UsageInfo }
   | { type: 'notice'; message: string }
   | { type: 'decision'; callId: string; decision: Decision }

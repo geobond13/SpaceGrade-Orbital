@@ -2,7 +2,7 @@
 // firing is what wakes the agent; deciding what it means is the agent's job.
 
 import { CONJUNCTION_EVENT, eclipseDodPct, knowledgeErrorDeg, OM_BURN, SCENARIOS, sample, sunAngleDeg, TRACKER, TRACKER_OUTAGES, type ScenarioId } from './scenarios'
-import { BATTERY } from './physics'
+import { BATTERY, linearFit } from './physics'
 
 export interface FlightEvent {
   id: string // FE-101
@@ -15,17 +15,7 @@ export interface FlightEvent {
   summary: string
 }
 
-/** Least-squares slope and its standard error. */
-export function linearFit(points: { t: number; v: number }[]) {
-  const n = points.length
-  const mt = points.reduce((s, p) => s + p.t, 0) / n
-  const mv = points.reduce((s, p) => s + p.v, 0) / n
-  const sxx = points.reduce((s, p) => s + (p.t - mt) ** 2, 0)
-  const slope = points.reduce((s, p) => s + (p.t - mt) * (p.v - mv), 0) / sxx
-  const resid = points.reduce((s, p) => s + (p.v - (mv + slope * (p.t - mt))) ** 2, 0)
-  const se = Math.sqrt(resid / Math.max(1, n - 2) / sxx)
-  return { slope, intercept: mv - slope * mt, se, n }
-}
+export { linearFit }
 
 function valveLeakEvents(): FlightEvent[] {
   const s = SCENARIOS['valve-leak']
@@ -44,8 +34,8 @@ function conjunctionEvents(): FlightEvent[] {
   const c = CONJUNCTION_EVENT
   if (c.pc < 1e-4) return []
   return [{
-    id: 'FE-201', scenario: 'conjunction', t: 2, severity: 'critical', rule: 'CONJ-SCREEN-PC', channel: 'TM-CONJ-02', partId: 'P-STR-01',
-    summary: `${c.cdm}: ${c.object}, closest approach in ${c.tca - 2} min, predicted miss ${c.missM} m, Pc ${c.pc.toExponential(1)} (action threshold 1e-4).`,
+    id: 'FE-201', scenario: 'conjunction', t: 2, severity: 'critical', rule: 'CONJ-SCREEN-PC', channel: 'TM-CONJ-02', partId: 'P-PROP-04',
+    summary: `${c.cdm}: ${c.object}, closest approach in ${c.tca - 2} min, predicted miss ${c.missM} m, Pc ${c.pc.toExponential(1)} (action threshold 1e-4). Avoidance needs a burn on the 1 N thrusters (P-PROP-04).`,
   }]
 }
 

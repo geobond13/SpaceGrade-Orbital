@@ -2,12 +2,24 @@
 // the build pedigree into a flight problem. Times are minutes from "now" (t = 0).
 
 import {
-  BATTERY, bedTempC, batteryWh, CONJUNCTION, deltaVForLead, packVoltage, preheatMinutes, tankPressure20C,
+  BATTERY, bedTempC, batteryWh, CONJUNCTION, dayDeltaVBelowRequirement, deltaVAtEndOfLife, deltaVForLead, leakFromSlope, linearFit, packVoltage, preheatMinutes, TANK, tankPressure20C,
 } from './physics'
 
 export type ScenarioId = 'valve-leak' | 'conjunction' | 'eclipse-power' | 'tracker-dropout'
 
 export type ActionKind = 'COLLISION_AVOIDANCE_BURN' | 'PAYLOAD_LOAD_SHED' | 'BURN_RETIME' | 'ONBOARD_TABLE_UPDATE' | 'PROPULSION_PROCEDURE' | 'FLIGHT_NCR_DRAFT'
+
+/**
+ * One adjustable condition per scenario, so a viewer can change the evidence or the staffing and
+ * watch the decision change. Defaults reproduce the as-built vehicle.
+ */
+export interface Conditions {
+  /** NCR-002 heater replaced before launch: a conforming re-test, 30 min preheat. */
+  heaterConforming?: boolean
+  /** An on-call operator is reachable early (conjunction). */
+  operatorOnCall?: boolean
+}
+export type ConditionKey = keyof Conditions
 
 /** An action that has been executed (autonomously or after approval) at sim time `t`. */
 export interface ExecutedAction { kind: ActionKind; t: number; params: Record<string, unknown> }
@@ -55,7 +67,18 @@ export interface Scenario {
   marks: { id: string; label: string; t: number }[]
   /** The records the scenario grows out of; the agent has to find these itself. */
   pedigree: string[]
+  /** The build record behind the symptom, shown on the twin once the agent cites it. */
+  cause?: { partId: string; ncr: string; line: string }
+  /** Conditions a viewer can change for this scenario, and what each one means. */
+  conditionDefs?: { key: ConditionKey; label: string; effect: string }[]
+  conditions: Conditions
 }
+
+/**
+ * How commands reach the vehicle with nobody on console: a low-rate data relay is always up,
+ * so the ground agent's authorised actions uplink at once. Operators are what is scarce, not the link.
+ */
+export const COMMAND_PATH = { label: 'GEO data relay', detail: 'low-rate command link, always up; uplink within 1 min, no operator needed' }
 
 // Deterministic noise in [-1, 1].
 function noise(seed: number, t: number): number {
@@ -85,8 +108,25 @@ const aEclipses = eclipsesFrom(30, { start: -7 * 1440, end: 1440 })
 const tankTempC = (t: number) => 20 + (inAny(t, aEclipses) ? -2.2 : 1.6) + 0.4 * Math.sin((2 * Math.PI * t) / (ORBIT_MIN * 15))
 const day = (t: number) => A_DAY + t / 1440
 
+/**
+ * The leak as the ground sees it at `t`: the 7-day temperature-compensated pressure slope, the helium
+ * leak rate it implies, and what that rate leaves at end of life. One source for FDIR, tools and policy.
+ */
+export function leakFit(t: number) {
+  const ch = valveLeak.channels.find((c) => c.id === 'TM-PROP-03')!
+  const fit = linearFit(sample(ch, t - 7 * 1440, t, 337, []))
+  const leakSccs = leakFromSlope(fit.slope * 1440)
+  const eol = deltaVAtEndOfLife(5 * 365, leakSccs)
+  const dayLost = dayDeltaVBelowRequirement(leakSccs)
+  return {
+    psiPerDay: fit.slope * 1440, significance: Math.abs(fit.slope / fit.se), leakSccs,
+    remainingAtEndOfLifeMs: eol.deltaVMs, shortfallMs: Math.max(0, TANK.requiredDeltaVMs - eol.deltaVMs), dayLost,
+  }
+}
+
 const valveLeak: Scenario = {
   id: 'valve-leak',
+  conditions: {},
   title: 'Slow pressure loss',
   tagline: 'Tank pressure is drifting down. Leak, sensor, or thermal?',
   missionDay: A_DAY,
@@ -103,6 +143,7 @@ const valveLeak: Scenario = {
   schedule: [],
   marks: [],
   pedigree: ['NCR-001', 'P-PROP-03', 'REQ-PROP-020', 'REQ-SYS-002'],
+  cause: { partId: 'P-PROP-03', ncr: 'NCR-001', line: 'Qualification valve leaked 3.2e-4 scc/s at the seat; the flight trend implies the same rate' },
   channels: [
     {
       id: 'TM-PROP-01', label: 'Tank pressure', unit: 'psia', partId: 'P-PROP-02', decimals: 2,
@@ -127,7 +168,7 @@ const valveLeak: Scenario = {
 const B_TCA = 120
 const B_MISS_M = 180
 
-/** Burn timing for a collision-avoidance command issued at `cmdT`, with as-built preheat. */
+/** Burn timing for a collision-avoidance command issued at `cmdT`; `asBuilt` uses the NCR-002 heater. */
 export function burnPlan(cmdT: number, asBuilt = true) {
   const burnT = cmdT + preheatMinutes(asBuilt)
   const leadMin = B_TCA - burnT
@@ -136,10 +177,11 @@ export function burnPlan(cmdT: number, asBuilt = true) {
 
 const burnOf = (actions: ExecutedAction[]) => actions.find((a) => a.kind === 'COLLISION_AVOIDANCE_BURN')
 
-function missDistance(t: number, actions: ExecutedAction[]): number {
+/** Predicted miss distance once a commanded burn has fired. */
+export function missDistance(t: number, actions: ExecutedAction[], asBuilt = true): number {
   const burn = burnOf(actions)
   if (!burn) return B_MISS_M
-  const plan = burnPlan(burn.t)
+  const plan = burnPlan(burn.t, asBuilt)
   if (t < plan.burnT || plan.leadMin <= 0) return B_MISS_M
   const dv = Math.min(CONJUNCTION.maxDeltaVMs, plan.deltaVMs)
   return B_MISS_M + 3 * dv * plan.leadMin * 60
@@ -148,46 +190,64 @@ function missDistance(t: number, actions: ExecutedAction[]): number {
 /** Probability of collision falls off steeply with miss distance (synthetic fit). */
 const pcFor = (missM: number) => 2.1e-4 * Math.exp(-(missM - B_MISS_M) / 140)
 
-const conjunction: Scenario = {
-  id: 'conjunction',
-  title: 'Conjunction, nobody on console',
-  tagline: 'Debris pass in two hours. The next ground contact is too late, and the thruster heater is slow.',
-  missionDay: 63,
-  range: { start: -60, end: 180 },
-  view: { start: -30, end: 150 },
-  timeline: { start: -15, end: 160 },
-  startT: 0,
-  speeds: [6, 30, 60],
-  eclipses: eclipsesFrom(-20, { start: -60, end: 180 }),
-  passes: [
-    { id: 'PASS-B1', station: 'Svalbard', attended: true, start: 38, end: 48 },
-    { id: 'PASS-B2', station: 'McMurdo', attended: true, start: 133, end: 142 },
-  ],
-  schedule: [],
-  marks: [{ id: 'TCA', label: 'Closest approach (CDM-0412)', t: B_TCA }],
-  pedigree: ['NCR-002', 'P-PROP-05', 'REQ-PROP-028'],
-  channels: [
-    {
-      id: 'TM-CONJ-01', label: 'Predicted miss distance', unit: 'm', partId: 'P-STR-01', decimals: 0, span: [0, 1400],
-      value: (t, a) => (t < 2 ? NaN : missDistance(t, a)),
-    },
-    {
-      id: 'TM-CONJ-02', label: 'Collision probability', unit: '', partId: 'P-STR-01', decimals: 7, log: true, span: [1e-7, 1e-3],
-      value: (t, a) => (t < 2 ? NaN : pcFor(missDistance(t, a))),
-    },
-    {
-      id: 'TM-PROP-05', label: 'Catalyst bed temperature', unit: '°C', partId: 'P-PROP-05', decimals: 0, span: [0, 360],
-      value: (t, a) => {
-        const burn = burnOf(a)
-        return bedTempC(burn ? t - burn.t : 0, true) + 0.6 * noise(5, t)
+/** The on-call operator a viewer can add: reachable well before the decision deadline. */
+const ON_CALL = { id: 'PASS-B0', station: 'On-call operator', attended: true, start: 20, end: 30 }
+
+function makeConjunction(cond: Conditions): Scenario {
+  const asBuilt = !cond.heaterConforming
+  return {
+    id: 'conjunction',
+    conditions: cond,
+    title: 'Conjunction, nobody on console',
+    tagline: 'Debris pass in two hours. The thruster heater on this vehicle is slower than its spec, and that moves the decision deadline.',
+    missionDay: 63,
+    range: { start: -60, end: 180 },
+    view: { start: -30, end: 150 },
+    timeline: { start: -15, end: 160 },
+    startT: 0,
+    speeds: [6, 30, 60],
+    eclipses: eclipsesFrom(-20, { start: -60, end: 180 }),
+    passes: [
+      ...(cond.operatorOnCall ? [ON_CALL] : []),
+      { id: 'PASS-B1', station: 'Svalbard', attended: true, start: 38, end: 48 },
+      { id: 'PASS-B2', station: 'McMurdo', attended: true, start: 133, end: 142 },
+    ],
+    schedule: [],
+    marks: [{ id: 'TCA', label: 'Closest approach (CDM-0412)', t: B_TCA }],
+    pedigree: ['NCR-002', 'P-PROP-05', 'REQ-PROP-028'],
+    cause: asBuilt
+      ? { partId: 'P-PROP-05', ncr: 'NCR-002', line: `Heater 52 Ω (spec 46 ± 2 Ω): preheat ${preheatMinutes(true).toFixed(1)} min, not 30` }
+      : { partId: 'P-PROP-05', ncr: 'NCR-002', line: 'Heater replaced before launch: conforming re-test, 30 min preheat' },
+    conditionDefs: [
+      { key: 'heaterConforming', label: 'Heater reworked before launch', effect: 'NCR-002 closed with a conforming re-test: 30 min preheat, deadline T+45' },
+      { key: 'operatorOnCall', label: 'On-call operator at T+20', effect: 'a human can be reached before the deadline' },
+    ],
+    channels: [
+      {
+        id: 'TM-CONJ-01', label: 'Predicted miss distance', unit: 'm', partId: 'P-STR-01', decimals: 0, span: [0, 1400],
+        // Screening has tracked the object since before T0; the CDM at T+2 is what crosses the threshold.
+        value: (t, a) => (t < -20 ? NaN : missDistance(t, a, asBuilt)),
       },
-      specModel: (t, a) => {
-        const burn = burnOf(a)
-        return bedTempC(burn ? t - burn.t : 0, false)
+      {
+        id: 'TM-CONJ-02', label: 'Collision probability', unit: '', partId: 'P-STR-01', decimals: 7, log: true, span: [1e-7, 1e-3],
+        value: (t, a) => (t < -20 ? NaN : pcFor(missDistance(t, a, asBuilt))),
       },
-    },
-  ],
+      {
+        id: 'TM-PROP-05', label: 'Catalyst bed temperature', unit: '°C', partId: 'P-PROP-05', decimals: 0, span: [0, 360],
+        value: (t, a) => {
+          const burn = burnOf(a)
+          return bedTempC(burn ? t - burn.t : 0, asBuilt) + 0.6 * noise(5, t)
+        },
+        specModel: (t, a) => {
+          const burn = burnOf(a)
+          return bedTempC(burn ? t - burn.t : 0, false)
+        },
+      },
+    ],
+  }
 }
+
+const conjunction = makeConjunction({})
 
 // ── C. Eclipse power with weak cells ──────────────────────────────────────────
 
@@ -238,6 +298,7 @@ export function eclipseDodPct(t: number, asBuilt: boolean, actions: ExecutedActi
 
 const eclipsePower: Scenario = {
   id: 'eclipse-power',
+  conditions: {},
   title: 'Eclipse power with weak cells',
   tagline: 'Battery voltage sags a little more each eclipse than the model expects.',
   missionDay: 88,
@@ -254,6 +315,7 @@ const eclipsePower: Scenario = {
   schedule: [{ id: XBAND.id, label: 'X-band payload downlink', start: XBAND.start, end: XBAND.end }],
   marks: [],
   pedigree: ['NCR-005', 'P-PWR-03', 'REQ-PWR-020', 'REQ-PWR-021'],
+  cause: { partId: 'P-PWR-03', ncr: 'NCR-005', line: 'Cell lot L-2611 tested 9.6 Ah, not 10.0; the onboard estimator still assumes 10.0' },
   channels: [
     {
       id: 'TM-PWR-01', label: 'Battery state of charge (onboard est.)', unit: '%', partId: 'P-PWR-02', decimals: 1,
@@ -332,6 +394,7 @@ export const omBurnT = (actions: ExecutedAction[]) => (actions.some((a) => a.kin
 
 const trackerDropout: Scenario = {
   id: 'tracker-dropout',
+  conditions: {},
   title: 'Blinded star tracker',
   tagline: 'The star tracker keeps dropping out, the IMU is drifting, and a burn fires before the next contact.',
   missionDay: 112,
@@ -348,6 +411,7 @@ const trackerDropout: Scenario = {
   schedule: [{ id: OM_BURN.id, label: 'Orbit maintenance burn', start: OM_BURN.t, end: OM_BURN.t + OM_BURN.durationMin }],
   marks: [],
   pedigree: ['NCR-004', 'P-ADCS-03', 'REQ-ADCS-021', 'REQ-ADCS-010'],
+  cause: { partId: 'P-ADCS-03', ncr: 'NCR-004', line: 'Baffle anodize 8 µm (drawing 12–18): tracker blinded below 46° sun angle, not 35°' },
   channels: [
     {
       id: 'TM-ADCS-01', label: 'Sun angle from tracker boresight', unit: '°', partId: 'P-ADCS-02', decimals: 1, span: [30, 90],
@@ -385,6 +449,19 @@ export function scheduleFor(s: Scenario, actions: ExecutedAction[]): Scenario['s
 }
 
 export const SCENARIOS: Record<ScenarioId, Scenario> = { 'valve-leak': valveLeak, conjunction, 'eclipse-power': eclipsePower, 'tracker-dropout': trackerDropout }
+
+/** The scenario under a viewer's conditions; the defaults are the as-built vehicle. */
+export function scenarioWith(id: ScenarioId, cond: Conditions = {}): Scenario {
+  if (id === 'conjunction' && (cond.heaterConforming || cond.operatorOnCall)) return makeConjunction(cond)
+  return SCENARIOS[id]
+}
+
+/** Only keys a scenario offers survive; anything else a client sends is dropped. */
+export function parseConditions(id: ScenarioId, raw: unknown): Conditions {
+  const defs = SCENARIOS[id].conditionDefs ?? []
+  const x = (raw ?? {}) as Record<string, unknown>
+  return Object.fromEntries(defs.filter((d) => x[d.key] === true).map((d) => [d.key, true]))
+}
 export const SCENARIO_IDS = Object.keys(SCENARIOS) as ScenarioId[]
 export const isScenarioId = (x: unknown): x is ScenarioId => typeof x === 'string' && x in SCENARIOS
 

@@ -52,7 +52,7 @@ function Strip({ channel, scenario, t, actions, active, onOpen }: {
 
   return (
     <div className={`rounded-md border px-2.5 py-2 transition-colors ${active ? 'border-accent/60 bg-accent-soft/30' : 'border-line bg-surface/60'}`}>
-      <div className="mb-1 flex items-baseline gap-2 font-mono text-[0.66rem]">
+      <div className="mb-1 flex items-baseline gap-2 font-mono text-[0.7rem]">
         <button type="button" onClick={() => onOpen(channel.id)} className="shrink-0 whitespace-nowrap text-accent hover:underline">{channel.id}</button>
         <span className="truncate text-muted">{channel.label}</span>
         <span className="ml-auto whitespace-nowrap tabular-nums text-ink">
@@ -85,7 +85,7 @@ function Strip({ channel, scenario, t, actions, active, onOpen }: {
           )}
         </svg>
         {hoverPt && (
-          <div className="pointer-events-none absolute -top-1 rounded border border-line-strong bg-canvas/95 px-1.5 py-0.5 font-mono text-[0.6rem] text-muted"
+          <div className="pointer-events-none absolute -top-1 rounded border border-line-strong bg-canvas/95 px-1.5 py-0.5 font-mono text-[0.68rem] text-muted"
             style={{ left: Math.min(width - 150, Math.max(0, x(hoverPt.t) + 6)) }}>
             {fmtT(hoverPt.t)} · <span className="text-ink">{fmtV(channel, hoverPt.v)}</span>
             {hoverPt.spec !== undefined && <> · spec {fmtV(channel, hoverPt.spec)}</>}
@@ -107,8 +107,8 @@ export function TelemetryStrips({ scenario, t, actions, activeChannels, onOpen }
   return (
     <section aria-label="Telemetry">
       <div className="mb-2">
-        <h2 className="panel-title">Telemetry</h2>
-        <span className="mt-1 flex items-center gap-3 font-mono text-[0.6rem] text-muted">
+        <h2 className="panel-title">Spacecraft telemetry</h2>
+        <span className="mt-1 flex items-center gap-3 font-mono text-[0.68rem] text-muted">
           <span className="flex items-center gap-1"><span className="inline-block h-0.5 w-3 bg-accent" />measured</span>
           <span className="flex items-center gap-1"><span className="inline-block w-3 border-t-[1.5px] border-dashed border-muted" />spec-sheet model</span>
           <span className="flex items-center gap-1"><span className="inline-block size-2 bg-line" />eclipse</span>
@@ -119,7 +119,7 @@ export function TelemetryStrips({ scenario, t, actions, activeChannels, onOpen }
           <Strip key={c.id} channel={c} scenario={scenario} t={t} actions={actions} active={activeChannels.has(c.id)} onOpen={onOpen} />
         ))}
       </div>
-      <p className="mt-2 font-mono text-[0.6rem] text-faint">Window {fmtT(scenario.view.start)} to {fmtT(scenario.view.end)}. Shaded right of the cursor: not yet happened.</p>
+      <p className="mt-2 font-mono text-[0.68rem] text-muted">Mission time {fmtT(scenario.view.start)} to {fmtT(scenario.view.end)}. Shaded right of the cursor: not yet happened.</p>
     </section>
   )
 }

@@ -6,9 +6,10 @@ import type { Run } from './use-agent-runs'
 
 const shortModel = (m: string) => m.split('/').pop() ?? m
 
+/** Seconds of model runtime since the run started; mission time lives elsewhere and uses T+. */
 function Stamp({ run, i }: { run: Run; i: number }) {
   const t = ((run.stamps[i] ?? run.startedAt) - run.startedAt) / 1000
-  return <span className="w-12 shrink-0 font-mono text-[0.65rem] tabular-nums text-faint">T+{t.toFixed(1).padStart(4, '0')}</span>
+  return <span className="w-12 shrink-0 font-mono text-[0.68rem] tabular-nums text-muted" title="Model runtime since the run started">{t.toFixed(1)} s</span>
 }
 
 function ModelTag({ model }: { model: string }) {
@@ -63,12 +64,12 @@ function Thinking({ e }: { e: Extract<AgentEvent, { type: 'thinking' }> }) {
   )
 }
 
-export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id: string) => void }) {
+export function TracePane({ run, onOpenRecord, emptyHint }: { run?: Run; onOpenRecord: (id: string) => void; emptyHint?: string }) {
   if (!run) {
     return (
       <div className="p-4 text-sm text-muted">
-        <h2 className="panel-title mb-2">Telemetry</h2>
-        <p className="font-mono text-xs leading-relaxed">Ask a question. The plan, every tool call with its arguments, the model that made it, and the tokens and cost of each step will appear here as they happen.</p>
+        <h2 className="panel-title mb-2">Agent activity</h2>
+        <p className="font-mono text-xs leading-relaxed">{emptyHint ?? 'Ask a question. The plan, every tool call with its arguments, the model that made it, and the tokens and cost of each step will appear here as they happen.'}</p>
       </div>
     )
   }
@@ -86,7 +87,7 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
     <div className="space-y-4 p-4">
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="panel-title">Flight plan</h2>
+          <h2 className="panel-title">Agent plan</h2>
           {start?.type === 'run_start' && (
             <span className="flex gap-1"><ModelTag model={start.models.planner} /><ModelTag model={start.models.router} /></span>
           )}
@@ -95,7 +96,7 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
       </section>
 
       <section>
-        <h2 className="panel-title mb-2">Telemetry</h2>
+        <h2 className="panel-title mb-2">Agent activity <span className="normal-case tracking-normal text-muted">· seconds of model runtime</span></h2>
         <ol className="space-y-2">
           {ev.map((e, i) => {
             if (e.type === 'thinking') return <li key={i} className="sg-rise flex gap-2"><Stamp run={run} i={i} /><div className="min-w-0 flex-1"><Thinking e={e} /></div></li>
@@ -144,7 +145,10 @@ export function TracePane({ run, onOpenRecord }: { run?: Run; onOpenRecord: (id:
               return (
                 <li key={i} className="sg-rise flex gap-2 font-mono text-[0.7rem] text-muted">
                   <Stamp run={run} i={i} /><span>Answer cites {e.citations.length} record{e.citations.length === 1 ? '' : 's'}
-                  {e.unknownIds.length > 0 ? <span className="text-bad"> · {e.unknownIds.length} id(s) not returned by any tool: {e.unknownIds.join(', ')}</span> : <span className="text-ok"> · all citations verified against tool output</span>}</span>
+                  {e.unknownIds.length > 0 ? <span className="text-bad"> · {e.unknownIds.length} id(s) not returned by any tool: {e.unknownIds.join(', ')}</span> : <span className="text-ok"> · every cited id came from tool output</span>}
+                  {e.quantities && e.quantities.checked > 0 && (e.quantities.unmatched.length
+                    ? <span className="text-warn"> · {e.quantities.unmatched.length} of {e.quantities.checked} quantities not in tool output</span>
+                    : <span className="text-ok"> · {e.quantities.checked} quantities match tool output</span>)}</span>
                 </li>
               )
             }

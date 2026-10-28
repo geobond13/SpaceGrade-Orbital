@@ -25,6 +25,8 @@ export interface AgentMode {
   ctx?: ToolCtx
   /** Records the request itself supplies (e.g. the FDIR event), citable without a tool call. */
   seed?: Citation[]
+  /** Plain names for tools, so an answer that mentions one reads as a source, not an API. */
+  toolLabels?: Record<string, string>
 }
 
 export const PROGRAM_MODE: AgentMode = {
@@ -73,7 +75,7 @@ ${mode.context}
 Use ONLY the tool results provided. Never invent records, numbers, dates or names.
 Cite every factual claim with the record id in square brackets, e.g. [NCR-001] or [REQ-PROP-020]. Only cite ids that appear in the tool results. Never put tool names in brackets; they are not sources.
 ${mode.answerRules}
-Write record ids with plain ASCII hyphens. No closing boilerplate about sources.
+Write record ids with plain ASCII hyphens. Write math and units as plain text (×, ≈, °C, m/s), never LaTeX. No closing boilerplate about sources.
 
 Output format, exactly:
 <answer>

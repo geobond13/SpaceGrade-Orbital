@@ -9,6 +9,7 @@ import { runTool, specsFor, TOOLS, type Citation, type ToolDef } from '@/lib/too
 import type { AgentEvent, PlanStep, UsageInfo } from './events'
 import { answerSystem, DOCUMENT_ADDENDUM, executorSystem, plannerSystem, PROGRAM_MODE, type AgentMode } from './prompts'
 import { extractTag, validateCitations } from './citations'
+import { checkQuantities } from './quantities'
 import { planProgress } from './plan-progress'
 
 type Msg = OpenAI.Chat.Completions.ChatCompletionMessageParam
@@ -25,6 +26,21 @@ export const normalizeIds = (s: string) => s.replace(/[‐-–]/g, '-')
 export const stripToolCitations = (s: string, tools: ToolDef[]) =>
   tools.reduce((text, t) => text.replace(new RegExp(`\\s?\\[${t.name}[^\\]]*\\]`, 'g'), ''), s)
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
+
+const LATEX: [RegExp, string][] = [
+  [/\\\(|\\\)|\\\[|\\\]/g, ''], [/\\times/g, '×'], [/\\approx/g, '≈'], [/\\leq?(?![a-z])/g, '≤'], [/\\geq?(?![a-z])/g, '≥'],
+  [/\\Delta\s?/g, 'Δ'], [/\^\{?\\circ\}?/g, '°'], [/\\(?:text|mathrm)\{([^}]*)\}/g, '$1'], [/\\%/g, '%'], [/\\,/g, ' '], [/\\to(?![a-z])/g, '→'],
+]
+/**
+ * Answers sometimes arrive with LaTeX, footnote markers or raw tool names. Strip the
+ * typesetting, drop markers that point nowhere, and name tools as the sources they read.
+ */
+export function cleanAnswer(s: string, toolLabels: Record<string, string> = {}): string {
+  let out = LATEX.reduce((t, [re, to]) => t.replace(re, to), s)
+  out = out.replace(/\$([^$\n]{1,80})\$/g, '$1').replace(/【[^】]*】/g, '').replace(/\[\^?\d+\]/g, '')
+  for (const [name, label] of Object.entries(toolLabels)) out = out.replace(new RegExp(`\`?${name}\`?(?:\\s+(?:tool|call|result)s?)?`, 'g'), label)
+  return out
+}
 
 interface ToolLog { name: string; args: Record<string, unknown>; data: unknown }
 
@@ -124,7 +140,9 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
       }
       if (result.decision) proposed.add(result.decision.kind)
       totals.toolCalls++
-      called.push(call.function.name)
+      // A call the tool rejected (bad arguments) does not complete its plan step; the next round retries it.
+      const failed = typeof result.data === 'object' && result.data !== null && 'error' in result.data
+      if (!failed) called.push(call.function.name)
       for (const c of result.citations) if (!seen.has(c.id)) seen.set(c.id, c)
       if (result.document) {
         document = result.document
@@ -167,7 +185,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   record('answer', 'planner', usage, Date.now() - start)
   if (thought) emit({ type: 'thinking', label: 'answer', model: modelFor('planner'), text: clip(thought, 1200) })
 
-  raw = stripToolCitations(normalizeIds(raw), mode.tools)
+  raw = cleanAnswer(stripToolCitations(normalizeIds(raw), mode.tools), mode.toolLabels)
   const answer = extractTag(raw, 'answer') ?? raw.replace(/<\/?[a-z_]+>/g, '').trim()
   let fullText = answer
   if (document) {
@@ -181,7 +199,9 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
     emit({ type: 'document', ...document })
   }
   const { cited, unknownIds } = validateCitations(fullText, seen)
-  emit({ type: 'answer', markdown: answer, citations: cited, unknownIds })
+  // Quantities are checked against everything the model was shown: the request and every tool result.
+  const quantities = checkQuantities(fullText, [question, ...toolLog.map((l) => l.data)])
+  emit({ type: 'answer', markdown: answer, citations: cited, unknownIds, quantities })
   emit({ type: 'done', totals: { ...totals, ms: Date.now() - t0 } })
 }
 

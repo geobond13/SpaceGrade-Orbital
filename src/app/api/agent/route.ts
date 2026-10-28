@@ -5,7 +5,7 @@ import type { AgentMode } from '@/lib/agent/prompts'
 import { flightBriefing, flightMode } from '@/lib/agent/flight-mode'
 import { detect } from '@/lib/flight/fdir'
 import { ACTION_CLASSES } from '@/lib/flight/autonomy'
-import { isScenarioId, type ExecutedAction } from '@/lib/flight/scenarios'
+import { isScenarioId, parseConditions, type ExecutedAction } from '@/lib/flight/scenarios'
 
 export const maxDuration = 300
 
@@ -33,7 +33,7 @@ function parseActions(raw: unknown): ExecutedAction[] {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => null)) as { question?: unknown; flight?: { scenario?: unknown; eventId?: unknown; actions?: unknown } } | null
+  const body = (await req.json().catch(() => null)) as { question?: unknown; flight?: { scenario?: unknown; eventId?: unknown; actions?: unknown; conditions?: unknown } } | null
   let question = typeof body?.question === 'string' ? body.question.trim() : ''
   let mode: AgentMode | undefined
   if (body?.flight) {
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const event = isScenarioId(scenario) ? detect(scenario).find((e) => e.id === eventId) : undefined
     if (!event) return Response.json({ error: 'unknown flight scenario or event' }, { status: 400 })
     question = flightBriefing(event)
-    mode = flightMode(event, parseActions(body.flight.actions))
+    mode = flightMode(event, parseActions(body.flight.actions), parseConditions(event.scenario, body.flight.conditions))
   }
   if (!question || question.length > 1000) return Response.json({ error: 'question must be 1 to 1000 characters' }, { status: 400 })
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'
