@@ -20,21 +20,38 @@ export const specsFor = (tools: ToolDef[]): OpenAI.Chat.Completions.ChatCompleti
 
 export const TOOL_SPECS = specsFor(TOOLS)
 
-export function runTool(name: string, rawArgs: string | Record<string, unknown>, opts: { tools?: ToolDef[]; ctx?: ToolCtx } = {}): ToolResult {
+type RunOpts = { tools?: ToolDef[]; ctx?: ToolCtx }
+
+function prepare(name: string, rawArgs: string | Record<string, unknown>, opts: RunOpts): { tool: ToolDef; args: Record<string, unknown> } | ToolResult {
   const tool = (opts.tools ?? TOOLS).find((t) => t.name === name)
   if (!tool) return { data: { error: `Unknown tool ${name}` }, citations: [], summary: `unknown tool ${name}` }
-  let args: Record<string, unknown> = {}
-  if (typeof rawArgs === 'string') {
-    try {
-      args = rawArgs.trim() ? JSON.parse(rawArgs) : {}
-    } catch {
-      return { data: { error: 'Arguments were not valid JSON' }, citations: [], summary: 'invalid arguments' }
-    }
-  } else args = rawArgs
-  const result = tool.run(args, opts.ctx)
-  // Any record id the model can read in the result is citable, not only the primary rows.
+  if (typeof rawArgs !== 'string') return { tool, args: rawArgs }
+  try {
+    return { tool, args: rawArgs.trim() ? JSON.parse(rawArgs) : {} }
+  } catch {
+    return { data: { error: 'Arguments were not valid JSON' }, citations: [], summary: 'invalid arguments' }
+  }
+}
+
+// Any record id the model can read in the result is citable, not only the primary rows.
+function withMentions(result: ToolResult): ToolResult {
   const mentioned = (JSON.stringify(result.data).match(RECORD_ID) ?? []).flatMap((id) => citationFor(id) ?? flightCitationFor(id) ?? [])
   return { ...result, citations: uniqueCitations([...result.citations, ...mentioned]) }
+}
+
+/** Runs a synchronous tool (every record tool). Use runToolAsync where a tool may call out (search_precedents). */
+export function runTool(name: string, rawArgs: string | Record<string, unknown>, opts: RunOpts = {}): ToolResult {
+  const p = prepare(name, rawArgs, opts)
+  if (!('tool' in p)) return p
+  const result = p.tool.run(p.args, opts.ctx)
+  if (result instanceof Promise) throw new Error(`${name} is asynchronous; use runToolAsync`)
+  return withMentions(result)
+}
+
+export async function runToolAsync(name: string, rawArgs: string | Record<string, unknown>, opts: RunOpts = {}): Promise<ToolResult> {
+  const p = prepare(name, rawArgs, opts)
+  if (!('tool' in p)) return p
+  return withMentions(await p.tool.run(p.args, opts.ctx))
 }
 
 export type { Citation, ToolCtx, ToolDef, ToolResult } from './types'

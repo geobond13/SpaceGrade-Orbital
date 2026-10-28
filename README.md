@@ -8,7 +8,7 @@
 
 **A spacecraft's build record changes what it can safely do in orbit.** SpaceGrade Flight Ops is a ground autonomy agent that wakes up when onboard fault detection fires and nobody is on console. It reads the telemetry, then the vehicle's build record: every test, every defect, and how each defect was signed off for flight. Then it proposes an action. A deterministic policy, not the model, decides whether that action runs now, waits for an operator, or is refused.
 
-The agent plans with **NVIDIA Nemotron 3 Super** and routes tool calls with **Nemotron 3 Nano**. All model calls go through **Nebius Token Factory**.
+The agent plans with **NVIDIA Nemotron 3 Super** and routes tool calls with **Nemotron 3 Nano**. All model calls go through **Nebius Token Factory**. Each run also searches public sources with **Tavily** for the same failure mode on other spacecraft, as precedent for the operator.
 
 > All data is synthetic: KESTREL-1 is a fictional 180 kg smallsat with 50 parts, 36 requirements, 61 test records and 5 nonconformances. The flight simulation is simplified physics, not flight software.
 
@@ -53,6 +53,8 @@ The review that shaped this version asked one question: when the model and the f
 ```mermaid
 flowchart LR
   FD[Onboard FDIR<br/>fixed rules] -->|event| R[/api/agent<br/>server builds the briefing/]
+  R -->|precedent query| TV[Tavily search<br/>public web sources]
+  TV -->|WEB-1…| L
   R --> L[Agent loop]
   subgraph TF[Nebius Token Factory]
     S[Nemotron 3 Super<br/>plan + assessment]
@@ -78,13 +80,19 @@ The build-phase console the project started as. An engineer asks a hardware ques
 
 ![Mission Control: the 3D twin framing the propulsion bay while the agent investigates open NCRs](docs/screenshot.jpg)
 
+## Public precedent with Tavily
+
+The build record says how *this* vehicle differs from its spec. Public sources say whether the same failure mode has been seen on other spacecraft, and what operators did. Before the agent plans, the server runs one Tavily search per fault type (`src/lib/tools/flight/precedents.ts`), with a query written for that fault in generic words, never the vehicle's record ids. For example, the conjunction searches "monopropellant thruster catalyst bed heater preheat time before collision avoidance maneuver".
+
+The sources appear in the agent trace and come back as `WEB-1 …` citations. The assessment has a **Public precedent** section that cites them, and clicking one opens the page. They are precedent, not evidence about this vehicle: the policy never reads them, and the answer rules forbid taking this vehicle's numbers from them. When nothing relevant comes back, the agent says so. The search runs on the server, outside the router's plan, so it adds no tool-calling risk. Without a `TAVILY_API_KEY` the section says public search is unavailable.
+
 ## How we use Nemotron and Nebius Token Factory
 
 - **One client, one provider.** `src/lib/nebius.ts` builds the `openai` SDK client with `baseURL = NEBIUS_BASE_URL` and `apiKey = NEBIUS_API_KEY`. No other model provider is installed or called.
 - **Two models with different jobs.** `nvidia/nemotron-3-super-120b-a12b` plans and writes; `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` routes tool calls. Ids live in `agent.config.ts` (override with `PLANNER_MODEL` / `ROUTER_MODEL`).
 - **Native tool calling**, including a named `tool_choice` to force a planned tool when the router declines.
 - **Reasoning is shown.** Token Factory returns Nemotron's reasoning in `reasoning_content`; the trace shows it per step.
-- **Streaming with usage** for exact token counts and cost per step. Flight runs take 27–52 s and cost $0.005–0.011 each; the six eval cases together cost about $0.04. A per-run token cap (60k) and a per-IP limit (10 runs/hour) bound the public demo.
+- **Streaming with usage** for exact token counts and cost per step. Flight runs take 27–52 s and cost $0.005–0.011 each; the six eval cases together cost about $0.04. A per-run token cap (90k) and a per-IP limit (10 runs/hour) bound the public demo.
 
 ## What was built during the hackathon
 
@@ -97,14 +105,14 @@ git clone https://github.com/geobond13/SpaceGrade-Orbital && cd SpaceGrade-Orbit
 npm install
 cp .env.example .env.local     # then set NEBIUS_API_KEY
 npm run smoke                  # lists Nemotron models, runs Super + Nano + one tool call
-npm test                       # 63 unit tests: physics, FDIR, policy, lifecycle, conditions, answer checks, tools
+npm test                       # 68 unit tests: physics, FDIR, policy, lifecycle, conditions, answer checks, tools, precedent search
 npm run eval:flight            # 6 flight cases end to end: cited records + autonomy tier, incl. both changed conditions
 npm run eval                   # Mission Control's 4 demo queries
 npm run record:flight          # refresh the recorded runs used by replay
 npm run dev                    # http://localhost:3000
 ```
 
-Requirements: Node 22+ and a Nebius Token Factory API key. To deploy, import the repo into Vercel and set `NEBIUS_API_KEY` and `NEBIUS_BASE_URL`.
+Requirements: Node 22+, a Nebius Token Factory API key and (optional) a Tavily API key. To deploy, import the repo into Vercel and set `NEBIUS_API_KEY`, `NEBIUS_BASE_URL` and `TAVILY_API_KEY`.
 
 ## Repo map
 

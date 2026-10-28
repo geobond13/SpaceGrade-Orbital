@@ -109,5 +109,6 @@ describe('answer checks', () => {
   it('strips LaTeX, dangling markers and raw tool names', () => {
     expect(cleanAnswer('Δv $\\approx 0.24$ m/s \\times 3 [1] per `propose_action` result', { propose_action: 'the autonomy policy' }))
       .toBe('Δv ≈ 0.24 m/s × 3  per the autonomy policy')
+    expect(cleanAnswer('as Web-2 notes')).toBe('as WEB-2 notes')
   })
 })

@@ -25,6 +25,8 @@ export interface AgentMode {
   ctx?: ToolCtx
   /** Records the request itself supplies (e.g. the FDIR event), citable without a tool call. */
   seed?: Citation[]
+  /** Tool calls the server makes before the agent plans (e.g. the public precedent search); the answer sees their results. */
+  preload?: { tool: ToolDef; args: Record<string, unknown> }[]
   /** Plain names for tools, so an answer that mentions one reads as a source, not an API. */
   toolLabels?: Record<string, string>
 }

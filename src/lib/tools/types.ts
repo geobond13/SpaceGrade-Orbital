@@ -1,12 +1,14 @@
 import type { Conditions, ExecutedAction, ScenarioId } from '@/lib/flight/scenarios'
 import type { Decision } from '@/lib/flight/autonomy'
 
-export type CitationType = 'part' | 'requirement' | 'test' | 'ncr' | 'supplier' | 'quote' | 'telemetry' | 'event' | 'conjunction' | 'session'
+export type CitationType = 'part' | 'requirement' | 'test' | 'ncr' | 'supplier' | 'quote' | 'telemetry' | 'event' | 'conjunction' | 'session' | 'web'
 
 export interface Citation {
   type: CitationType
   id: string
   label: string
+  /** Public web sources only (search_precedents). */
+  url?: string
 }
 
 export interface ToolResult {
@@ -35,5 +37,5 @@ export interface ToolDef {
   name: string
   description: string
   parameters: Record<string, unknown>
-  run(args: Record<string, unknown>, ctx?: ToolCtx): ToolResult
+  run(args: Record<string, unknown>, ctx?: ToolCtx): ToolResult | Promise<ToolResult>
 }

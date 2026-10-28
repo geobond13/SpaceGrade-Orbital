@@ -9,10 +9,21 @@ import type { AgentMode } from './prompts'
 import { RECORD_ID } from './citations'
 import { flightCitationFor } from '@/lib/tools/flight/cite'
 import { citationFor } from '@/lib/tools/lookup'
+import { searchPrecedents } from '@/lib/tools/flight/precedents'
+import type { ScenarioId } from '@/lib/flight/scenarios'
+
+/** Public precedent queries the server runs (Tavily) before the agent plans: the failure mode in generic words, never this vehicle's ids. */
+export const PRECEDENT_QUERIES: Record<ScenarioId, string> = {
+  'valve-leak': 'spacecraft propellant tank slow pressure decay latch valve seat leak on orbit',
+  conjunction: 'monopropellant thruster catalyst bed heater preheat time before collision avoidance maneuver',
+  'eclipse-power': 'satellite lithium-ion battery capacity shortfall eclipse depth of discharge load shedding',
+  'tracker-dropout': 'star tracker sun exclusion stray light baffle outages on orbit',
+}
 
 export const FLIGHT_TOOL_LABELS: Record<string, string> = {
   get_telemetry: 'telemetry',
   get_part_history: 'the build record',
+  search_precedents: 'a public precedent search',
   get_contact_windows: 'the contact schedule',
   propose_action: 'the autonomy policy',
   draft_flight_ncr: 'the flight NCR draft',
@@ -29,7 +40,8 @@ You were woken by an onboard FDIR event. FDIR has already detected the symptom; 
 The vehicle's build pedigree (SpaceGradeOS: parts, tests with measured values, nonconformances) is available through get_part_history. Records are as of qualification; each NCR also carries asFlown, the disposition the vehicle launched with. Treat the pedigree as evidence about how THIS vehicle behaves where it differs from its spec sheet: sensors are few, so the pedigree is often what tells two explanations apart.
 The vehicle is in orbit. Hardware cannot be repaired, replaced or reworked. Corrective actions now are operational (timing, loads, onboard tables, procedures); hardware fixes belong to the next build, recorded through a flight NCR.
 You never command the vehicle directly. propose_action submits a proposal to a deterministic autonomy policy, which authorises it, queues it for an operator, or refuses it. The policy computes deadlines and operator reachability itself.
-Record id formats: telemetry TM-XXXX-01, FDIR events FE-101, conjunction messages CDM-0412, payload sessions XB-0412, scheduled burns OM-0417, parts P-XXXX-01, requirements REQ-XXX-001, tests TR-001, nonconformances NCR-001.`,
+Before you plan, the server searched public sources on the web (Tavily) for the same failure mode on other spacecraft; the answer step receives those sources (WEB-1 …). That is precedent, not evidence about this vehicle: it can inform what the operator checks, never a deadline, a number or the action.
+Record id formats: public web sources WEB-1, telemetry TM-XXXX-01, FDIR events FE-101, conjunction messages CDM-0412, payload sessions XB-0412, scheduled burns OM-0417, parts P-XXXX-01, requirements REQ-XXX-001, tests TR-001, nonconformances NCR-001.`,
     tools: FLIGHT_TOOLS,
     toolLabels: FLIGHT_TOOL_LABELS,
     steps: '3 to 6',
@@ -42,11 +54,13 @@ Record id formats: telemetry TM-XXXX-01, FDIR events FE-101, conjunction message
 6. draft_flight_ncr when the anomaly reveals a lasting vehicle condition the build record should carry (a leak, a capacity shortfall, a sensor limit that differs from its requirement), not for a one-off event like a conjunction.`,
     executorRules: `- Pass channel ids (TM-…) and part ids (P-…) exactly as the event and earlier results give them.
 - propose_action kinds, spelled in full: COLLISION_AVOIDANCE_BURN, PAYLOAD_LOAD_SHED (with session id), BURN_RETIME (with burn id), ONBOARD_TABLE_UPDATE (with table), PROPULSION_PROCEDURE (with a concrete procedure). If a tool returns an error, fix the arguments and call it again. The rationale states the technical reason with record ids only; never predict the tier, deadline or whether an operator is reachable, because the policy computes those.
+- A conjunction (CDM-…) is answered with COLLISION_AVOIDANCE_BURN, never a PROPULSION_PROCEDURE: the policy plans the preheat and the burn itself.
 - When the plan has two propose_action steps they are two different kinds (e.g. BURN_RETIME, then ONBOARD_TABLE_UPDATE). Never propose a kind you already proposed.`,
     answerRules: `Write for the operator who will read this at the next pass. The console already shows the policy decision, its deadline and its live status from the decision record, so do not write an action section and do not restate the tier.
 Use exactly these headings:
-**Diagnosis**: what is happening and the most likely cause. Cite at least one telemetry channel (TM-…) AND at least one build record (NCR-…, TR-…, REQ-…), and say how the NCR was dispositioned for flight (asFlown).
+**Diagnosis**: what is happening and the most likely cause. Cite at least one telemetry channel (TM-…), the event's message id when it has one (CDM-…, XB-…, OM-…), AND at least one build record (NCR-…, TR-…, REQ-…), and say how the NCR was dispositioned for flight (asFlown).
 **Why the build record mattered**: FDIR already caught the symptom; say what the record changed about the diagnosis, the prognosis or the action, against what the spec-sheet model implies. Quantitative.
+**Public precedent**: at most two sentences, and every sentence cites a WEB-… source. Say only what a source itself says: name what it covers (a datasheet, a test study, a flight report). If no source reports this failure mode in flight, say "No in-flight precedent in the public sources found" and what they do cover. Never claim other spacecraft or operators did something unless a cited source says so, and never take numbers for this vehicle from these sources. If the search was unavailable, say so in one line.
 **For the operator**: two short lists. "At the next pass (<station>, T+…)" for decisions and checks an operator can do during that contact. "Afterwards" for verification that happens later, each with its time. Operational steps only for this vehicle; put hardware changes under "next build".
 Rules for numbers: copy deadlines, contact times and statuses exactly from the propose_action and get_contact_windows results. Where a result gives a "statement", reuse its wording: "remaining" and "lost" are different quantities. Say "authorised" for autonomous actions, not "executed": the effect (preheat, burn) follows over time.
 Be concise. These are simulated flight conditions on synthetic data.`,
@@ -54,6 +68,7 @@ Be concise. These are simulated flight conditions on synthetic data.`,
     // The event and anything it names are evidence the answer may cite.
     seed: [event.id, event.channel, event.partId, ...(event.summary.match(RECORD_ID) ?? [])].flatMap((id) => flightCitationFor(id) ?? citationFor(id) ?? []),
     ctx: { scenario: event.scenario, t: event.t, actions, cond },
+    preload: [{ tool: searchPrecedents, args: { query: PRECEDENT_QUERIES[event.scenario] } }],
   }
 }
 
