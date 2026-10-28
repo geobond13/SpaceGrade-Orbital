@@ -41,6 +41,8 @@ export function AgentApp() {
   // What-if: NCRs the user closed by hand, and agent-closed ones the user switched back off.
   const [manualClosed, setManualClosed] = useState<string[]>([])
   const [excluded, setExcluded] = useState<string[]>([])
+  /** Reset also drops the agent's assumed test re-runs, so every readiness display returns to baseline. */
+  const [ignoreAgentTests, setIgnoreAgentTests] = useState(false)
   const [listening, setListening] = useState(false)
   const chatEnd = useRef<HTMLDivElement>(null)
 
@@ -56,8 +58,8 @@ export function AgentApp() {
   )
   const baseline = useMemo(() => computeReadiness(), [])
   const readiness = useMemo(
-    () => computeReadiness(overridesFromArgs({ closeNcrs: [...closed], passTests: focus.simulation?.passTests })),
-    [closed, focus.simulation],
+    () => computeReadiness(overridesFromArgs({ closeNcrs: [...closed], passTests: ignoreAgentTests ? undefined : focus.simulation?.passTests })),
+    [closed, focus.simulation, ignoreAgentTests],
   )
   const visuals = useMemo(() => readinessVisuals(readiness), [readiness])
 
@@ -69,6 +71,7 @@ export function AgentApp() {
     setPinned(null)
     setManualClosed([])
     setExcluded([])
+    setIgnoreAgentTests(false)
     void ask(question)
   }
 
@@ -87,6 +90,7 @@ export function AgentApp() {
   function resetWhatIf() {
     setManualClosed([])
     setExcluded([...agentClosed])
+    setIgnoreAgentTests(true)
     setPinned(null)
   }
 

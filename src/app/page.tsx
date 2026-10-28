@@ -1,5 +1,5 @@
-import { AgentApp } from "@/components/agent-app";
+import { FlightApp } from '@/components/flight/flight-app'
 
 export default function Home() {
-  return <AgentApp />;
+  return <FlightApp />
 }

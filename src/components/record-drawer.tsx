@@ -5,6 +5,7 @@ import { RECORD_ID } from '@/lib/agent/citations'
 import { CitationChip } from './citation-chip'
 import { channelById, CONJUNCTION_EVENT, OM_BURN, XBAND_SESSION } from '@/lib/flight/scenarios'
 import { eventById } from '@/lib/flight/fdir'
+import type { AsFlown } from '@/lib/flight/as-flown'
 
 const COLLECTIONS = [
   ['Part', programData.parts],
@@ -80,8 +81,15 @@ function Value({ value, onOpen }: { value: unknown; onOpen: (id: string) => void
   return <span>{s}</span>
 }
 
-export function RecordDrawer({ id, onOpen, onClose }: { id: string; onOpen: (id: string) => void; onClose: () => void }) {
+export function RecordDrawer({ id, onOpen, onClose, asFlown }: {
+  id: string
+  onOpen: (id: string) => void
+  onClose: () => void
+  /** Flight Mode: how an NCR was dispositioned for the vehicle that flew. */
+  asFlown?: (id: string) => AsFlown | undefined
+}) {
   const found = findRecord(id)
+  const flown = asFlown?.(id)
   return (
     <div className="fixed inset-0 z-40 flex justify-end" onClick={onClose}>
       <aside
@@ -98,6 +106,15 @@ export function RecordDrawer({ id, onOpen, onClose }: { id: string; onOpen: (id:
           <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted hover:bg-sunken">Close</button>
         </header>
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {flown && (
+            <section className="mb-4 rounded-md border border-warn/40 bg-warn-soft/40 px-3 py-2.5 text-sm">
+              <h3 className="panel-title !text-warn">As flown · {flown.disposition}</h3>
+              <p className="mt-1.5 text-ink">{flown.basis}</p>
+              <p className="mt-1.5"><span className="text-muted">In orbit: </span>{flown.flightImpact}</p>
+              <p className="mt-1.5"><span className="text-muted">Reached operations: </span>{flown.carriedIntoOps}</p>
+              <p className="mt-2 text-xs text-muted">The fields below are the record as it stood at qualification.</p>
+            </section>
+          )}
           {found?.kind === 'Part' && <Pedigree partId={id} onOpen={onOpen} />}
           {found ? (
             <dl className="space-y-3 text-sm">

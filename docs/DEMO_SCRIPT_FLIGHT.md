@@ -1,45 +1,49 @@
-# Flight Mode demo (2 minutes, product vision)
+# Demo video script (under 3 minutes)
 
-Open `/flight` full screen. Telemetry is on the left, the 3D twin and the operations timeline are in the middle with the agent's decision below, and the trace is on the right. Each agent run takes 20–40 s; sim time holds while it reasons.
+One decision advantage, shown three ways: as built, with one condition changed, and with a human in the loop. Record at 1920×1080 in Chrome. Use **Live agent** for the first run, so the video shows a real Nemotron call, and **Recorded run** if you need to retake.
 
-## 0:00–0:20 · The problem
+## 0:00–0:20 · The claim
 
-> "Spacecraft are short on sensors: every sensor costs money, mass and power. So when something drifts in orbit, the telemetry usually fits two or three explanations. Engineers break the tie with the vehicle's history. SpaceGradeOS holds that history: every test, every nonconformance, every disposition. Flight Mode puts it in the loop, at 3 a.m., with nobody on console."
+Open https://spacegrade-agent.vercel.app (Conjunction, nobody on console).
 
-## 0:20–1:10 · Conjunction, nobody on console (the hero)
+> "Spacecraft fly with defects that were accepted before launch. The paperwork says so, but the paperwork never reaches operations. SpaceGrade puts a spacecraft's build record into the loop of a ground autonomy agent, running on NVIDIA Nemotron through Nebius."
 
-Click **Run scenario** (Conjunction is the default).
+Point at the three numbered lines in the intro: fault detection is fixed rules; the agent reads telemetry and the build record; a deterministic policy, not the model, decides.
 
-- At T+2 the onboard fault detection fires FE-201: debris, Pc 2.1e-4, closest approach in 118 min. The banner turns red: *no operator on console*. The timeline hatches a **36-minute gap** before the next pass.
-- The agent reads the conjunction telemetry, then goes to the **catalyst bed heater's pedigree** (the camera flies to it), because burn timing depends on it.
-- The **decision card**: preheat takes **43 min as-built** (NCR-002, a 52 Ω heater) instead of 30. That moves the decision deadline to **T+32, before the T+38 pass**. With the spec sheet, a human would have had time; with the real vehicle, they don't. **Executed autonomously**, and every envelope check is shown.
+## 0:20–1:15 · Conjunction, as built (the hero)
 
-> "The model didn't decide to burn. It proposed. A deterministic policy checked the envelope and the deadline and executed, because no human could be reached in time. The build record is what made that call correct."
+Press **Run scenario**. FE-201 fires at T+2: debris, closest approach in 118 min. The red banner says nobody is on console and the relay link is up.
 
-- Let it play: the heater warms on the twin (cyan) and its telemetry lags the dashed spec curve. At the burn, the **miss distance jumps from 180 m to 1.2 km**.
+While the agent works (right panel), say:
+> "Nemotron Super plans, Nano routes each tool call. It reads the collision telemetry, then the thruster's build record, then who is on shift."
 
-## 1:10–1:40 · Slow pressure loss (diagnosis)
+When the decision card appears, stay on the timing chart:
+> "On the spec sheet the heater warms the thrusters in 30 minutes, so the latest time to start is T+45, after the operator arrives at T+38. Fine, wait for the human. But this vehicle's heater is 52 ohms. NCR-002, accepted for flight. It takes 43 minutes, so the deadline is T+32, six minutes before anyone is on console. The policy authorises the burn."
 
-Click **Slow pressure loss** and **Run scenario**.
+Click the red **Cause in the build record** box on the twin to open NCR-002 and show the **As flown** section: use-as-is under deviation, and "reached operations: no".
 
-- Seven days of telemetry: the raw pressure swings with every orbit, and the temperature-compensated channel shows the slow decline.
-- The agent infers a helium leak of **3.2e-4 scc/s, the same rate the qualification unit's valve leaked in NCR-001**. On the twin the tank is the symptom (orange) and the valve is the cause (red).
-- It projects that the leak strands propellant and breaks REQ-SYS-002 around mission day 710. Propulsion procedures need a human, so the card says **Awaiting operator approval**: click **Approve**.
-- **Back to the build record**: open the drafted flight NCR. The anomaly flows back into SpaceGradeOS.
+Back on the card, point at the lifecycle: authorised, preheat commanded, **bed at 315 °C · now**.
+> "Authorised isn't done. The bed is still heating; the burn fires at T+45."
 
-## Alternative 1:10–1:50 · Blinded star tracker (autonomy that also fixes the vehicle's own rules)
+Switch to 1 h/s and let it pass T+47: the miss distance goes from 180 m to about 1.2 km and the last step reads "Miss distance checked".
 
-Click **Blinded star tracker** and **Run scenario**.
+## 1:15–1:55 · Change one condition
 
-- The tracker drops out for 23 minutes every orbit with the sun 40–46° off boresight, though the spec says it works down to 35° (the dashed line never dips). On the IMU alone, attitude knowledge drifts to 0.46°.
-- The agent finds **NCR-004**: the baffle's anodize is thin and the sun-exclusion test was never run. The tracker isn't broken; it's blinded. The baffle turns red on the twin.
-- **Executed autonomously:** burn OM-0417 at T+58 would fire on a blinded tracker, and the operator isn't on until T+70, so the policy holds it to T+84.
-- **Awaiting approval:** onboard fault detection is counting outages toward declaring the tracker failed (safe mode at T+146). The agent proposes changing the onboard exclusion table to the 46° seen in flight. Click **Approve**, play at 1 h/s, and the counter stops at 3.
+Click the scenario button again (resets). Tick **On-call operator at T+20**. Run.
+> "Same evidence, but now a human can be reached before the deadline."
 
-> "That's the roadmap in one scenario: the agent acts where it has to, and asks the operator to update the vehicle's own rules so it stops making the wrong call."
+The card says **Waiting for an operator**: "An operator is on console 12 min before it is due." Playback stops at T+20 with "You are the operator". Click **Approve at T+20**. Preheat starts at T+20, from your decision.
 
-## 1:40–2:00 · Eclipse power (optional) and close
+(Alternative: tick **Heater reworked before launch**: deadline back to T+45, so the T+38 operator decides.)
 
-The weak cell lot (NCR-005) means the next eclipse with an X-band downlink would hit 20.4% depth of discharge against a 20% limit, while the onboard model says 19.6%. The payload session is shed autonomously.
+## 1:55–2:35 · Trust
 
-> "Same agent, same citations, now in orbit. Today it runs as an always-on ground agent. Next, it compiles what it learns into onboard tables tuned to the as-built vehicle."
+Scroll to the agent assessment.
+> "The model writes the assessment, but it doesn't get to state the decision. The card above is the policy's own record. Every cited record must come from a tool, every number must match tool output, and when the agent's rationale disagrees with the policy, the card says the policy overrode it."
+
+Point at the two check lines under the evidence chips and open **Policy checks and the agent's rationale**.
+
+## 2:35–2:55 · Close
+
+Click **Blinded star tracker** (or show it recorded): the burn is held autonomously, and an onboard table change waits for the operator.
+> "Act alone only when nobody can decide in time, and never on the vehicle's own rules. Every flight anomaly goes back to the build record as a flight NCR. A build record that flies with the spacecraft."

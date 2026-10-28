@@ -4,18 +4,19 @@
 
 import type { ToolCtx, ToolDef, ToolResult } from '../types'
 import { cite, db, isOpen, resolveParts, str, verificationStatus } from '../lookup'
-import { channelById, CONJUNCTION_EVENT, falseSafeModeT, knowledgeErrorDeg, trackerHealthCount, nextContact, OM_BURN, sample, scheduleFor, SCENARIOS, sunAngleDeg, TRACKER, TRACKER_OUTAGES, XBAND_SESSION, type Channel, type ScenarioId } from '@/lib/flight/scenarios'
+import { channelById, COMMAND_PATH, CONJUNCTION_EVENT, falseSafeModeT, knowledgeErrorDeg, leakFit, trackerHealthCount, nextContact, OM_BURN, sample, scheduleFor, scenarioWith, sunAngleDeg, TRACKER, TRACKER_OUTAGES, XBAND_SESSION, type Channel, type Conditions, type ScenarioId } from '@/lib/flight/scenarios'
 import { linearFit } from '@/lib/flight/fdir'
 import { ACTION_CLASSES, decide } from '@/lib/flight/autonomy'
-import { dayDeltaVBelowRequirement, deltaVAtEndOfLife, leakFromSlope, TANK } from '@/lib/flight/physics'
+import { TANK } from '@/lib/flight/physics'
+import { asFlown } from '@/lib/flight/as-flown'
 import type { ActionKind } from '@/lib/flight/scenarios'
 
 const needCtx = (): ToolResult => ({ data: { error: 'Flight tools need a flight context' }, citations: [], summary: 'no flight context' })
 const round = (v: number, d: number) => Number.isFinite(v) ? Number(v.toFixed(d)) : null
 const rel = (m: number) => `T${m >= 0 ? '+' : ''}${Math.round(m)} min`
 
-function channelsFor(scenario: ScenarioId, args: Record<string, unknown>): Channel[] {
-  const s = SCENARIOS[scenario]
+function channelsFor(scenario: ScenarioId, args: Record<string, unknown>, cond?: Conditions): Channel[] {
+  const s = scenarioWith(scenario, cond)
   const ref = str(args.channel)
   if (ref) {
     const exact = s.channels.filter((c) => c.id.toLowerCase() === ref.toLowerCase())
@@ -46,10 +47,10 @@ export const getTelemetry: ToolDef = {
   },
   run(args, ctx?: ToolCtx) {
     if (!ctx) return needCtx()
-    const s = SCENARIOS[ctx.scenario]
+    const s = scenarioWith(ctx.scenario, ctx.cond)
     const span = typeof args.window_min === 'number' && args.window_min > 0 ? args.window_min : ctx.t - s.view.start
     const from = Math.max(s.range.start, ctx.t - span)
-    const channels = channelsFor(ctx.scenario, args)
+    const channels = channelsFor(ctx.scenario, args, ctx.cond)
     const data = channels.map((c) => {
       const pts = sample(c, from, ctx.t, 240, ctx.actions)
       if (pts.length === 0) return { id: c.id, label: c.label, note: 'no data yet' }
@@ -57,21 +58,24 @@ export const getTelemetry: ToolDef = {
       const last = pts[pts.length - 1]
       const out: Record<string, unknown> = {
         id: c.id, label: c.label, unit: c.unit, partId: c.partId,
-        window: `${rel(from)} to ${rel(ctx.t)}`,
+        window: `${rel(from)} to ${rel(ctx.t)}`, latestAt: rel(last.t),
         latest: round(last.v, c.decimals), min: round(Math.min(...pts.map((p) => p.v)), c.decimals), max: round(Math.max(...pts.map((p) => p.v)), c.decimals),
         trendPerHour: fit && round(fit.slope * 60, c.decimals + 2),
         trendPerDay: fit && round(fit.slope * 1440, c.decimals + 1),
         trendSignificance: fit && round(Math.abs(fit.slope / fit.se), 1),
       }
       if (last.spec !== undefined) out.residualVsSpecModel = round(last.v - last.spec, c.decimals)
-      if (c.id === 'TM-PROP-03' && fit) {
-        const leak = leakFromSlope(fit.slope * 1440)
-        const day = dayDeltaVBelowRequirement(leak)
-        out.equivalentHeliumLeakSccs = Number(leak.toExponential(2))
+      if (c.id === 'TM-PROP-03' && ctx.scenario === 'valve-leak') {
+        // The same 7-day fit the FDIR rule and the autonomy policy use, so every number agrees.
+        const leak = leakFit(ctx.t)
+        const day = leak.dayLost
         const today = Math.floor(s.missionDay + ctx.t / 1440)
+        const remaining = Math.round(leak.remainingAtEndOfLifeMs)
+        out.equivalentHeliumLeakSccs = Number(leak.leakSccs.toExponential(2))
         out.projectionIfLeakContinues = {
+          statement: `If the leak continues, ${remaining} m/s of delta-v REMAINS at end of life, ${Math.round(leak.shortfallMs)} m/s SHORT of the ${TANK.requiredDeltaVMs} m/s required (REQ-SYS-002).`,
           note: 'Leaked helium cannot push propellant out: below 100 psia feed pressure the remaining propellant is stranded.',
-          deltaVAvailableAtEndOfLifeMs: round(deltaVAtEndOfLife(5 * 365, leak).deltaVMs, 0),
+          deltaVRemainingAtEndOfLifeMs: remaining, deltaVShortfallMs: Math.round(leak.shortfallMs),
           deltaVBudgetMs: TANK.deltaVBudgetMs, deltaVRequiredMs: TANK.requiredDeltaVMs, requirement: 'REQ-SYS-002',
           missionDayNow: today,
           missionDayRequirementLost: day ?? null,
@@ -120,7 +124,7 @@ export const getPartHistory: ToolDef = {
   name: 'get_part_history',
   description: 'The build pedigree of a part: supplier, revision, every test with its measured value, every nonconformance with its disposition, and the verification status of its requirements. Also includes NCRs on parts it contains and on other parts in the same assembly, because a fault often shows up somewhere else in the same system.',
   parameters: { type: 'object', properties: { part: { type: 'string', description: 'Part id or name' } }, required: ['part'] },
-  run(args) {
+  run(args, ctx?: ToolCtx) {
     const parts = resolveParts(str(args.part))
     if (parts.length === 0) return { data: { error: `No part matches ${String(args.part)}` }, citations: [], summary: 'no part matched' }
     const part = parts[0]
@@ -135,8 +139,11 @@ export const getPartHistory: ToolDef = {
     const ncrRow = (n: (typeof ncrs)[number]) => ({
       id: n.id, partId: n.partId, title: n.title, opened: n.opened, severity: n.severity, status: n.status,
       disposition: n.disposition ?? null, open: isOpen(n), detectedBy: n.detectedBy ?? null, description: n.description, nextAction: n.nextAction,
+      // In flight, the qualification-era record is followed by how the MRB closed it out before launch.
+      ...(ctx ? { asFlown: asFlown(n.id, ctx.cond) ?? null } : {}),
     })
     const data = {
+      ...(ctx ? { note: 'Records are the build record as of qualification; asFlown on each NCR is the disposition the vehicle launched with. The vehicle is in orbit: hardware cannot be repaired or replaced, only operated around now or fixed on the next build.' } : {}),
       part: { id: part.id, name: part.name, partNumber: part.partNumber, revision: part.revision, criticality: part.criticality, qualStatus: part.qualStatus, contains: [...own].filter((id) => id !== part.id) },
       supplier: supplier && { id: supplier.id, name: supplier.name, escapesLast12mo: supplier.escapesLast12mo },
       tests: tests.map((t) => ({ id: t.id, date: t.date, partId: t.partId, name: t.name, stage: t.stage, outcome: t.outcome, measured: t.measured ?? null, notes: t.notes ?? null })),
@@ -158,13 +165,14 @@ export const getContactWindows: ToolDef = {
   parameters: { type: 'object', properties: {} },
   run(_args, ctx?: ToolCtx) {
     if (!ctx) return needCtx()
-    const s = SCENARIOS[ctx.scenario]
+    const s = scenarioWith(ctx.scenario, ctx.cond)
     const contact = nextContact(s, ctx.t)
     const data = {
       now: rel(ctx.t), missionDay: Math.floor(s.missionDay + ctx.t / 1440),
       operatorOnConsoleNow: false,
+      commandLink: `${COMMAND_PATH.label}: ${COMMAND_PATH.detail}. Operators, not the link, are what is unavailable.`,
       nextOperatorContact: contact ? { station: contact.station, aos: rel(contact.start), minutesFromNow: Math.round(contact.start - ctx.t) } : null,
-      passes: s.passes.filter((p) => p.end > ctx.t).map((p) => ({ station: p.station, aos: rel(p.start), los: rel(p.end), operatorAttended: p.attended })),
+      operatorContacts: s.passes.filter((p) => p.end > ctx.t).map((p) => ({ station: p.station, aos: rel(p.start), los: rel(p.end), operatorAttended: p.attended })),
       eclipses: s.eclipses.filter((e) => e.end > ctx.t).slice(0, 3).map((e) => ({ start: rel(e.start), end: rel(e.end) })),
       scheduled: scheduleFor(s, ctx.actions).filter((x) => x.end > ctx.t).map((x) => ({
         id: x.id, label: x.label, start: rel(x.start), end: rel(x.end),
@@ -201,13 +209,22 @@ export const proposeAction: ToolDef = {
   },
   run(args, ctx?: ToolCtx) {
     if (!ctx) return needCtx()
-    const kind = KINDS.find((k) => k === str(args.kind)?.toUpperCase())
+    // Small models sometimes truncate enum values ("COL"); accept an unambiguous prefix.
+    const raw = str(args.kind)?.toUpperCase().replace(/[^A-Z_]/g, '') ?? ''
+    const prefixed = raw.length >= 3 ? KINDS.filter((k) => k.startsWith(raw)) : []
+    const kind = KINDS.find((k) => k === raw) ?? (prefixed.length === 1 ? prefixed[0] : undefined)
     if (!kind) return { data: { error: `kind must be one of ${KINDS.join(', ')}` }, citations: [], summary: 'unknown action kind' }
     const params = { ...(str(args.session) ? { session: str(args.session) } : {}), ...(str(args.burn) ? { burn: str(args.burn) } : {}), ...(str(args.table) ? { table: str(args.table) } : {}), ...(str(args.procedure) ? { procedure: str(args.procedure) } : {}), rationale: str(args.rationale) }
-    const d = decide(ctx.scenario, ctx.t, kind, params, ctx.actions)
-    const verb = d.tier === 'auto' ? 'EXECUTED autonomously' : d.tier === 'gated' ? 'AWAITING operator approval' : 'REFUSED'
+    const d = decide(ctx.scenario, ctx.t, kind, params, ctx.actions, ctx.cond)
+    const verb = d.tier === 'auto' ? 'authorised autonomously' : d.tier === 'gated' ? 'awaiting operator approval' : 'REFUSED'
     return {
-      data: { action: ACTION_CLASSES[kind].label, ...d, executed: d.tier === 'auto', deadline: d.deadline !== undefined ? rel(d.deadline) : null },
+      data: {
+        action: ACTION_CLASSES[kind].label, ...d, timing: undefined,
+        status: d.tier === 'auto' ? 'AUTHORISED by the policy and uplinked; the effect follows over time (e.g. preheat, then burn)' : d.tier === 'gated' ? 'WAITING for an operator decision at the next operator contact' : 'REFUSED',
+        deadline: d.deadline !== undefined ? rel(d.deadline) : null,
+        nextOperatorContact: d.nextContact ? `${d.nextContact.station} ${rel(d.nextContact.start)}` : null,
+        note: 'The policy recomputed the deadline and operator reachability from its own models. These values are authoritative; use them, not your own estimate.',
+      },
       citations: [],
       summary: `${ACTION_CLASSES[kind].label}: ${verb}`,
       decision: d,
@@ -241,7 +258,7 @@ export const draftFlightNcr: ToolDef = {
     })
     const parent = part.parentId
     const linked = db.nonconformances.filter((n) => n.partId === part.id || (parent && db.parts.find((p) => p.id === n.partId)?.parentId === parent))
-    const s = SCENARIOS[ctx.scenario]
+    const s = scenarioWith(ctx.scenario, ctx.cond)
     const markdown = [
       `# Flight NCR draft: ${part.name}`,
       '',

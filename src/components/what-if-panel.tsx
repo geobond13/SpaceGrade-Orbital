@@ -16,8 +16,11 @@ export function WhatIfPanel({ closed, fromAgent, readiness, baseline, onToggle, 
   onReset: () => void
 }) {
   const [open, setOpen] = useState(false)
+  // The agent opens the panel when it simulates; closing it stays closed until the agent simulates something else.
+  const agentKey = [...fromAgent].sort().join(',')
+  const [dismissed, setDismissed] = useState<string | null>(null)
   const active = closed.size > 0
-  const expanded = open || fromAgent.size > 0
+  const expanded = open || (fromAgent.size > 0 && dismissed !== agentKey)
   const delta = readiness.pct - baseline.pct
 
   return (
@@ -27,7 +30,7 @@ export function WhatIfPanel({ closed, fromAgent, readiness, baseline, onToggle, 
           <div className="mb-1.5 flex items-center gap-2">
             <span className="panel-title !text-accent">What-if</span>
             {fromAgent.size > 0 && <span className="rounded bg-super-soft px-1 text-[0.6rem] text-super">from agent</span>}
-            <button type="button" onClick={() => { setOpen(false); if (active) onReset() }} className="ml-auto text-faint hover:text-ink" aria-label="Close what-if">✕</button>
+            <button type="button" onClick={() => { setOpen(false); setDismissed(agentKey); if (active || fromAgent.size > 0) onReset() }} className="ml-auto text-faint hover:text-ink" aria-label="Close what-if">✕</button>
           </div>
           <p className="mb-2 text-muted">Assume an NCR is dispositioned and its failed tests re-run clean.</p>
           <ul className="space-y-1">

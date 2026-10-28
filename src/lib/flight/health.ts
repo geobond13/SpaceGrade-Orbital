@@ -2,7 +2,7 @@
 // FDIR saw the symptom, red where the build record located the cause, cyan
 // while an action is running. Pure, so the twin and tests agree.
 
-import { burnPlan, OM_BURN, retimedBurnT, XBAND_SESSION, type ExecutedAction } from './scenarios'
+import { burnPlan, OM_BURN, retimedBurnT, XBAND_SESSION, type Conditions, type ExecutedAction } from './scenarios'
 import { preheatMinutes } from './physics'
 import type { FlightEvent } from './fdir'
 import { db } from '@/lib/tools/lookup'
@@ -19,7 +19,7 @@ export const HEALTH: Record<Health, { hex: string; label: string; pulse: boolean
 
 const RANK: Health[] = ['commanded', 'cause', 'watch', 'shed', 'nominal']
 
-export function partHealth(t: number, fired: FlightEvent[], causeNcrs: string[], actions: ExecutedAction[]): Record<string, Health> {
+export function partHealth(t: number, fired: FlightEvent[], causeNcrs: string[], actions: ExecutedAction[], cond: Conditions = {}): Record<string, Health> {
   const out: Record<string, Health> = {}
   const mark = (id: string, h: Health) => {
     const cur = out[id] ?? 'nominal'
@@ -32,7 +32,7 @@ export function partHealth(t: number, fired: FlightEvent[], causeNcrs: string[],
   }
   for (const a of actions) {
     if (a.kind === 'COLLISION_AVOIDANCE_BURN') {
-      const plan = burnPlan(a.t)
+      const plan = burnPlan(a.t, !cond.heaterConforming)
       // Heater on from the command; thrusters fire for a couple of minutes at the planned burn time.
       if (t >= a.t && t < plan.burnT + 2) mark('P-PROP-05', 'commanded')
       if (t >= plan.burnT && t < plan.burnT + 2) mark('P-PROP-04', 'commanded')

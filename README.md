@@ -1,125 +1,106 @@
-# SpaceGrade Agent
+# SpaceGrade Flight Ops
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-![SpaceGrade Agent: the 3D twin framing the propulsion bay while the agent investigates open NCRs](docs/screenshot.jpg)
+![SpaceGrade Flight Ops: a conjunction with nobody on console. The as-built heater moves the preheat deadline to T+32, before the operator at T+38, so the policy authorises the burn](docs/flight.jpg)
 
-**Live demo:** https://spacegrade-agent.vercel.app · Built for the Nebius x NVIDIA Global AI Hackathon (Best Apps and Agents track)
+**Live demo:** https://spacegrade-agent.vercel.app · Built for the Nebius x NVIDIA Global AI Hackathon (Apps and Agents)
 
-An engineer types (or says) a hardware question in plain English. SpaceGrade Agent plans with **NVIDIA Nemotron 3 Super**, routes tool calls with **Nemotron 3 Nano**, and reads parts, requirements, test records, nonconformances and supplier quotes. It returns a structured answer, a full engineering document, or a what-if simulation. Every claim cites the record it came from.
+**A spacecraft's build record changes what it can safely do in orbit.** SpaceGrade Flight Ops is a ground autonomy agent that wakes up when onboard fault detection fires and nobody is on console. It reads the telemetry, then the vehicle's build record: every test, every defect, and how each defect was signed off for flight. Then it proposes an action. A deterministic policy, not the model, decides whether that action runs now, waits for an operator, or is refused.
 
-It runs as a **mission-control console**: a live **3D digital twin** of the spacecraft sits in the middle, and the camera flies to whichever parts the agent is investigating as each tool returns. Parts glow by qualification status (blocked NCRs pulse red), a readiness board and a requirement verification matrix fill in as the agent reads them, and a telemetry feed on the right shows the plan, each tool call with its arguments, which model made it, and the tokens and cost of every step.
+The agent plans with **NVIDIA Nemotron 3 Super** and routes tool calls with **Nemotron 3 Nano**. All model calls go through **Nebius Token Factory**.
 
-All model calls go through **Nebius Token Factory**.
+> All data is synthetic: KESTREL-1 is a fictional 180 kg smallsat with 50 parts, 36 requirements, 61 test records and 5 nonconformances. The flight simulation is simplified physics, not flight software.
 
-> All data in this repo is synthetic: KESTREL-1 is a fictional 180 kg smallsat with 50 parts, 36 requirements, 61 test records, 5 nonconformances, 9 suppliers and 3 valve quotes. No SpaceGrade production code or customer data is included.
+## The idea in one example
 
-## Why it matters
+Debris will pass KESTREL-1 in two hours. Avoiding it takes a thruster burn, and the thrusters have to be preheated first. The next operator is on console at T+38.
 
-Hardware teams in aerospace lose days, and sometimes weeks, chasing status across spreadsheets, PLM exports, test reports and NCR logs. A question like *"what is blocking propulsion qualification?"* means opening four systems and reconciling ids by hand. The answer is only useful if every line can be traced back to a record, because in a qualification review an uncited claim doesn't count.
+| | Spec sheet | This vehicle, as built |
+|---|---:|---:|
+| Catalyst bed preheat | 30 min | **43.4 min** (NCR-002: heater 52 Ω, accepted for flight under deviation) |
+| Latest time to start preheat | T+45 | **T+32** |
+| Operator on console | T+38 | T+38 |
+| Who decides | the operator | **nobody can in time, so the policy acts** |
 
-SpaceGrade Agent asks that question of the data directly. It follows the thread from nonconformance to affected requirement to test evidence, and it refuses to cite anything a tool did not return.
+A model built from the spec sheet would wait for the operator and miss the deadline. The deviation was correct when the review board signed it, but it never reached the operations side. The agent finds it in the build record and the policy acts on it.
 
-## What it does
+**Change one condition and the decision changes.** The console lets you rework the heater before launch (deadline back to T+45, so the operator decides) or put an on-call operator on console at T+20 (a human is reachable in time, so the burn waits for approval). `npm run eval:flight` checks both variants.
 
-| Ask | What happens |
-|---|---|
-| "Which components on the propulsion assembly have open nonconformances, and what's blocking qualification?" | Plan: NCRs → affected requirements → test evidence. The answer names NCR-001 (valve seat leak) and NCR-002 (catalyst bed heater), the failed tests behind them, and the owners and dates of the next actions. |
-| "Is the star tracker ready for CDR? Show the requirements that are not verified yet." | Finds the part, derives verification status from test records (verified, failed, in progress, unverified), and lists what is needed to close each gap, including the open baffle NCR that blocks the sun-exclusion test. |
-| "Draft a trade study comparing Halden Valve Works and Corvid Flow Systems for the main isolation valve against our requirements." | Checks each quote against the valve's measurable requirements and drafts a trade-study document. The tables are rendered from the data; Nemotron Super writes only the executive summary and recommendation, with citations. The result can be downloaded as Markdown. |
-| "What if NCR-001 is dispositioned and the valve seat leak retest passes? How does propulsion readiness change, and what still blocks qualification?" | Calls `simulate_change`, which recomputes verification with the NCR closed and its failed test retested. The twin, board and matrix re-colour to the simulated state (the valve flashes as it changes), and the answer gives readiness before and after (62% → 69% for propulsion) and the NCRs still blocking. The same what-if can be toggled by hand from the panel on the twin. |
+## Four flight situations, each grown from a real record
 
-## Architecture
+| Scenario | Symptom | Build record | Spec-sheet model says | What happens |
+|---|---|---|---|---|
+| Conjunction, nobody on console | Pc 2.1e-4, closest approach in 118 min | NCR-002: catalyst bed heater 52 Ω, 290 °C at 30 min; flown use-as-is | Deadline T+45, after the T+38 operator: wait | Deadline T+32, before the operator. **Burn authorised autonomously**; preheat, burn at T+45, miss distance 180 m → about 1.2 km |
+| Slow pressure loss | Tank pressure trend −0.087 psi/day | NCR-001: valve seat leaked 3.2e-4 scc/s in qualification; flight valve cleaned and accepted | Pressure decline of unknown cause | Slope matches NCR-001. 29 m/s of delta-v remains at end of life against 120 m/s required (REQ-SYS-002). Propulsion procedure **waits for the operator**; a flight NCR goes back to the build record |
+| Eclipse power with weak cells | End-of-eclipse voltage 0.04 V below model | NCR-005: cell lot 9.6 Ah against 10.0 Ah; flown under a requirement deviation | Next eclipse 19.6 % depth of discharge, inside the 20 % limit | 20.4 % as built. X-band session **shed autonomously**, 17.4 % |
+| Blinded star tracker | Tracker lost every orbit with the sun at 40–46°, outside its 35° exclusion | NCR-004: thin baffle anodize; sun exclusion test deferred to orbit | Tracker valid; burn at T+58 fires; a health counter declares the tracker failed at T+146 | **Burn held autonomously** to T+84. An onboard table change (46°) **waits for the operator**, and stops the false safe mode |
+
+## Why you can trust what it shows
+
+The review that shaped this version asked one question: when the model and the facts disagree, which one does the screen show? The answer here is the facts.
+
+- **The decision card is computed, not written.** Tier, deadline, operator time, spec-vs-build comparison and the lifecycle come from the policy's decision record (`src/lib/flight/autonomy.ts`). The model's assessment sits below it, labelled with the time it was written.
+- **The policy overrides the model, visibly.** The agent's rationale is shown as "not used by the policy". When it assumed a different timing, the card says the policy overrode it.
+- **Authorised is not done.** Each action shows its stages from mission time: proposed → authorised → preheat commanded → bed at 315 °C → burn → miss distance checked (`src/lib/flight/lifecycle.ts`).
+- **The operator is explicit.** A gated decision waits for the operator's pass. Playback stops there, you play the operator, and your decision takes effect at that pass time, not before.
+- **Two checks on every answer.** Every cited record id must come from a tool result, and every quantity with a unit must match a number a tool returned (`src/lib/agent/quantities.ts`). Neither checks reasoning, and the UI says so.
+- **One source per number.** FDIR, telemetry tool and policy share one leak fit, so "29 m/s remaining" is the same number everywhere and is labelled as remaining, not lost.
+- **The backstory holds together.** Records are as of qualification, and each NCR carries its as-flown disposition (`src/lib/flight/as-flown.ts`): how it was accepted for flight, what it means in orbit, and whether that reached operations. Commands go up a GEO data relay that is always available, so the constraint is a missing human, not a missing link. The agent knows the vehicle is in orbit: fixes now are operational, and hardware fixes go to the next build through a flight NCR.
+
+## How it works
 
 ```mermaid
 flowchart LR
-  U[Engineer] -->|question| UI[Next.js UI<br/>chat + live trace]
-  UI -->|POST /api/agent| R[Route handler<br/>NDJSON stream, rate limit]
+  FD[Onboard FDIR<br/>fixed rules] -->|event| R[/api/agent<br/>server builds the briefing/]
   R --> L[Agent loop]
-
-  subgraph TF[Nebius Token Factory - OpenAI-compatible API]
-    S[Nemotron 3 Super<br/>plan + final answer]
+  subgraph TF[Nebius Token Factory]
+    S[Nemotron 3 Super<br/>plan + assessment]
     N[Nemotron 3 Nano<br/>tool routing]
   end
-
-  L -->|1 plan JSON| S
-  L -->|2 route next plan step| N
-  N -.->|no call / truncated| S
-  L -->|3 streamed cited answer| S
-
-  L --> T[7 tools]
-  T --> D[(Synthetic program data<br/>parts, requirements, tests,<br/>NCRs, suppliers, quotes)]
-  T -->|data + citations| L
-  L -->|citation validator| R
-  R -->|events: plan, tool_call,<br/>tool_result, usage, answer| UI
-  UI --> F[deriveFocus + computeReadiness<br/>pure, client-side]
-  F --> TW[3D twin, readiness board,<br/>verification matrix]
+  L --> S
+  L --> N
+  L --> T[get_telemetry · get_part_history ·<br/>get_contact_windows · propose_action ·<br/>draft_flight_ncr]
+  T --> SIM[(Seeded sim +<br/>build record)]
+  T -->|propose_action| P[Autonomy policy<br/>deterministic]
+  P -->|decision record| UI[Console: decision card,<br/>timing, lifecycle, twin]
+  L -->|assessment + checks| UI
 ```
 
-**Loop** (`src/lib/agent/loop.ts`):
+- **Loop** (`src/lib/agent/loop.ts`): Super writes a 3–6 step plan; Nano routes each step with native tool calls, and Super takes over with a forced `tool_choice` if Nano declines or truncates. A call the tool rejects does not count as a done step, so it is retried. The same action kind cannot be proposed twice. Super streams the assessment.
+- **Simulation** (`src/lib/flight/`): seeded and pure. Model parameters come from record values: heater resistance → preheat curve, leak rate → blowdown and stranded propellant, cell capacity → depth of discharge, baffle stray light → tracker outages.
+- **Policy**: one question sets the tier for time-critical classes: *can an operator be reached before the deadline?* Envelope checks (Δv ≤ 0.5 m/s, delta-v budget kept, payload loads only) can refuse. Onboard table changes and propulsion procedures always wait for a human.
+- **Recorded runs**: `npm run record:flight` saves a live run per scenario to `public/recordings/`. The console can replay it on a compressed clock (labelled as recorded, with the original runtime), for presentations that cannot wait 40–100 s.
 
-1. **Plan.** Super returns 2–5 steps as JSON, each naming one tool. Consecutive duplicate steps are collapsed.
-2. **Act.** Each round, Nano gets the plan with `[done]` / `[NEXT]` markers and native OpenAI-style `tools`. If Nano returns no tool call, or runs out of reasoning tokens mid-call, Super takes that step with a *named* `tool_choice` that forces the planned tool. The loop stops as soon as every plan step has run, so no model round is spent just saying "done". A guardrail refuses `draft_document` unless the plan asked for it and the evidence steps before it are complete.
-3. **Answer.** Super streams the answer from the tool results only. Every record id in the text is checked against the ids the tools actually returned. Unknown ids are flagged in red in the UI and the trace.
+## Mission Control: the same record before launch (`/mission`)
 
-**Tools** (`src/lib/tools/`): `search_parts`, `get_requirements`, `get_test_results`, `list_nonconformances`, `compare_suppliers`, `simulate_change`, `draft_document`. Each is a pure function over the data that returns `{ data, citations, summary }`. Requirement status is *derived* from test records, never stored, and supplier compliance is computed per requirement, not judged by the model.
+The build-phase console the project started as. An engineer asks a hardware question in plain English ("what is blocking propulsion qualification?", "draft a trade study for these two valve suppliers", "what if NCR-001 closes?"). Seven tools read parts, requirements, test records, NCRs and quotes; a 3D twin follows the agent; every claim cites a record. Flight Ops is the same build record, carried into orbit.
 
-**Visual layer** (`src/lib/focus.ts`, `src/lib/readiness.ts`, `src/components/twin/`): the UI spends no extra model calls on visuals. `deriveFocus` turns the agent's event stream into the parts it is looking at, because every record id resolves to a part (an NCR, test or quote has a `partId`, a requirement has `partIds`). `computeReadiness` rolls test evidence and NCRs up to requirements, parts and assemblies, optionally under what-if overrides. The same function backs the `simulate_change` tool, so the twin shows exactly what the agent computed. The twin is a procedural react-three-fiber model where every mesh belongs to a part id; it is code-split and falls back to a 2D schematic without WebGL. Status colours were checked for colour-vision deficiency, and status never relies on colour alone.
-
-## Flight Mode (`/flight`): the build pedigree as a virtual sensor
-
-![Flight Mode: a conjunction with no operator on console; the policy executes an avoidance burn because the as-built heater moves the deadline before the next contact](docs/flight.jpg)
-
-Spacecraft are short on sensors, because every sensor costs money, mass and power. So a symptom in orbit usually fits more than one cause. Ground engineers settle it from the records ("that valve had a seat-leak NCR, use-as-is"), but that history lives in PLM and QMS systems and in people's heads, not in the loop. Flight Mode puts it in the loop. A ground autonomy agent is woken by onboard fault detection while nobody is on console. It reads the telemetry, then the vehicle's **build pedigree**, and reasons about what this particular vehicle is doing.
-
-Each scenario turns a record that already exists in the program data into a flight problem:
-
-| Scenario | Symptom | Record that explains it | What a spec-sheet model gets wrong | Outcome |
-|---|---|---|---|---|
-| Slow pressure loss | Temperature-compensated tank pressure trends −0.087 psi/day | NCR-001: the isolation valve seat leaked 3.2e-4 scc/s in qualification | Sees noise or "a leak somewhere"; nothing projects end of life | Inferred leak is 3.2e-4 scc/s, the same as NCR-001. Stranded propellant takes delta-v below REQ-SYS-002 by mission day ~710. A propulsion procedure waits for operator approval and a flight NCR goes back to the build record |
-| Conjunction, nobody on console | Pc 2.1e-4, closest approach in 118 min | NCR-002: the catalyst bed heater is 52 Ω and reaches only 290 °C at 30 min | Preheat 30 min, so the decision deadline is T+45, after the T+38 pass, and a human could decide | As-built preheat is 43 min, so the deadline is T+32, **before** the pass. The policy executes the burn autonomously, and the miss distance grows from 180 m to 1.2 km |
-| Eclipse power with weak cells | End-of-eclipse voltage 0.04 V below model, three eclipses running | NCR-005: cell lot L-2611 has 9.6 Ah against 10.0 Ah | The next eclipse with an X-band downlink is 19.6% depth of discharge, inside the 20% limit | As-built it is 20.4%, over the REQ-PWR-021 limit. The policy sheds the payload session autonomously, giving 17.4% |
-| Blinded star tracker, IMU drifting | Tracker lost for 23 min every orbit with the sun at 40–46°, outside the 35° exclusion angle; attitude runs on the IMU alone and drifts to 0.46° | NCR-004: baffle anodize 8 µm against 12–18 µm, stray-light risk; the sun-exclusion test (REQ-ADCS-021) was never run | No outages at all, so a burn at T+58 fires on a blinded tracker (0.15° knowledge vs 0.02° required, REQ-ADCS-010); the tracker-health counter declares a healthy tracker failed and enters safe mode at T+146 | Tracker is healthy but blinded. The policy holds the burn autonomously to T+84 (operator not reachable until T+70). The agent proposes an onboard table update (exclusion 46° as flown) for the operator, which stops the false safe mode |
-
-**The agent proposes; a deterministic policy decides.** The LLM never commands the vehicle. `propose_action` submits a proposal to `src/lib/flight/autonomy.ts`, which checks an envelope (for example Δv ≤ 0.5 m/s and the delta-v budget kept) and sets the tier from one question: *can an operator be reached before the decision deadline?* If not, pre-approved action classes execute and are logged. If so, they wait for approval. Propulsion procedures always wait. In the eval, Nano's own rationale sometimes gets the timing wrong; the policy is the source of truth, and the decision card shows its checks.
-
-**How it is built.** The same agent loop runs with an `AgentMode` (flight tools, context, answer rules). `get_telemetry` reads only up to "now". `get_part_history` returns the pedigree, including NCRs on sibling parts in the same system. The other tools are `get_contact_windows`, `propose_action` and `draft_flight_ncr`. The simulation (`src/lib/flight/`) is seeded and pure, and its model parameters come from record values, such as heater resistance into the preheat curve, the leak rate into blowdown, and cell capacity into depth of discharge. Fault detection is a fixed rule set with no model in it. `npm run eval:flight` runs all four scenarios headless and checks the cited record and the tier (~$0.03 for all four). The loop refuses a second proposal of the same action kind, so a plan with two proposals (hold the burn, then update the table) gets both.
-
-**Roadmap.** (1) Today: an always-on ground agent. (2) Compile what it learns into onboard tables, such as thresholds and models tuned to the as-built vehicle; the star tracker scenario shows the first step, an operator-approved `ONBOARD_TABLE_UPDATE`. (3) Onboard reasoning on payload-class compute, for decisions that are not flight-critical.
+![Mission Control: the 3D twin framing the propulsion bay while the agent investigates open NCRs](docs/screenshot.jpg)
 
 ## How we use Nemotron and Nebius Token Factory
 
 - **One client, one provider.** `src/lib/nebius.ts` builds the `openai` SDK client with `baseURL = NEBIUS_BASE_URL` and `apiKey = NEBIUS_API_KEY`. No other model provider is installed or called.
-- **Two models with different jobs.** Model ids live in `agent.config.ts` and can be overridden with the `PLANNER_MODEL` and `ROUTER_MODEL` env vars:
-  - `nvidia/nemotron-3-super-120b-a12b` handles planning, fallback routing, and the final cited answer and document narrative.
-  - `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` handles per-step tool routing.
-  - Swapping in Nemotron 3 Ultra (`nvidia/Nemotron-3-Ultra-550b-a55b`) is one env var.
-- **Native tool calling.** We use OpenAI-format `tools` and `tool_calls` on Token Factory, including a named `tool_choice` to force a specific function when the router declines.
-- **Reasoning is shown, not hidden.** Token Factory returns Nemotron's reasoning in a separate `reasoning_content` field. The trace shows it per step, collapsed by default.
-- **Streaming with usage.** The final answer streams (`stream: true`, `stream_options.include_usage`), so text appears as it is written and the run still gets exact token counts.
-- **Cost accounting.** Every call logs prompt and completion tokens, latency and estimated cost, using Token Factory list prices in `agent.config.ts`: $0.30/$0.90 per 1M tokens for Super and $0.06/$0.24 for Nano. Measured on the four demo queries, a run costs **$0.002–0.006** and takes 15–55 s. A per-run token cap (60k) and a per-IP limit (10 runs/hour) keep the public demo's total spend far under the $50 budget.
+- **Two models with different jobs.** `nvidia/nemotron-3-super-120b-a12b` plans and writes; `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` routes tool calls. Ids live in `agent.config.ts` (override with `PLANNER_MODEL` / `ROUTER_MODEL`).
+- **Native tool calling**, including a named `tool_choice` to force a planned tool when the router declines.
+- **Reasoning is shown.** Token Factory returns Nemotron's reasoning in `reasoning_content`; the trace shows it per step.
+- **Streaming with usage** for exact token counts and cost per step. Flight runs take 27–52 s and cost $0.005–0.011 each; the six eval cases together cost about $0.04. A per-run token cap (60k) and a per-IP limit (10 runs/hour) bound the public demo.
 
 ## What was built during the hackathon
 
-SpaceGradeOS, a hardware lifecycle platform, existed before the hackathon. It runs on a different model stack, and none of its code is in this repo. Everything here was written during the hackathon:
-
-- A Nebius Token Factory client and model config, plus a smoke test that lists Nemotron models and checks completions and tool calling.
-- A synthetic KESTREL-1 program dataset designed around realistic qualification problems.
-- Seven citation-returning tools, including a what-if simulator, and the requirement-verification and supplier-compliance logic behind them.
-- The plan → route → answer loop on Nemotron Super and Nano, with forced-tool fallback, a document guardrail, auto-stop and the citation validator.
-- The mission-control UI: a 3D digital twin that follows the agent, a readiness board, a requirement verification matrix, a what-if panel, voice questions, a telemetry trace, record drawer and document view.
-- A headless eval (`npm run eval`) that runs the four demo queries and checks the expected citations, that no id is unknown, and that the document is complete.
+SpaceGradeOS, a hardware lifecycle platform, existed before the hackathon on a different model stack; none of its code is here. Everything in this repo was written during the hackathon: the synthetic KESTREL-1 program, the flight simulation and FDIR, the autonomy policy, lifecycle and as-flown records, twelve tools, the plan → route → answer loop on Nemotron with its guardrails and answer checks, both consoles with the 3D twin, and the evals.
 
 ## Run it locally
 
 ```bash
-git clone https://github.com/geobond13/spacegrade-agent && cd spacegrade-agent
+git clone https://github.com/geobond13/SpaceGrade-Orbital && cd SpaceGrade-Orbital
 npm install
 cp .env.example .env.local     # then set NEBIUS_API_KEY
 npm run smoke                  # lists Nemotron models, runs Super + Nano + one tool call
-npm test                       # 50 unit tests: tools, citations, guardrails, readiness, focus, what-if, flight physics, FDIR, autonomy policy
-npm run eval                   # the 4 demo queries end to end, with token/cost totals
-npm run eval:flight            # the 4 Flight Mode scenarios: cited record + autonomy tier
+npm test                       # 63 unit tests: physics, FDIR, policy, lifecycle, conditions, answer checks, tools
+npm run eval:flight            # 6 flight cases end to end: cited records + autonomy tier, incl. both changed conditions
+npm run eval                   # Mission Control's 4 demo queries
+npm run record:flight          # refresh the recorded runs used by replay
 npm run dev                    # http://localhost:3000
 ```
 
@@ -129,29 +110,25 @@ Requirements: Node 22+ and a Nebius Token Factory API key. To deploy, import the
 
 ```
 agent.config.ts            model ids, caps, prices
-src/data/                  synthetic program + types
 src/lib/nebius.ts          the only LLM client
-src/lib/tools/             seven tools + tests
-src/lib/agent/             loop, prompts, citation validator, plan progress, events
-src/lib/readiness.ts       readiness roll-up and what-if overrides
-src/lib/focus.ts           agent events -> parts in focus
-src/app/api/agent/route.ts streaming endpoint
-src/components/            console shell, board, matrix, what-if, voice, trace, drawers
-src/components/twin/       3D model, canvas, 2D schematic fallback
-src/lib/flight/            Flight Mode sim: physics from records, scenarios, FDIR, autonomy policy, part health
+src/lib/agent/             loop, prompts, flight mode, citation and quantity checks
+src/lib/flight/            sim (physics from records), scenarios + conditions, FDIR, autonomy policy, lifecycle, as-flown records
 src/lib/tools/flight/      flight tools
-src/components/flight/     /flight UI: telemetry strips, operations timeline, decision cards
-scripts/                   smoke test, eval
-docs/                      demo script, Devpost text
+src/components/flight/     Flight Ops console: decision card, timing comparison, timeline, telemetry
+src/lib/tools/             Mission Control tools
+src/components/            shared trace, twin, record drawer; Mission Control console
+src/app/api/agent/route.ts streaming endpoint (flight runs are briefed by the server, not the client)
+scripts/                   smoke, evals, recorder
+public/recordings/         recorded live runs for replay
+docs/                      demo scripts, Devpost text
 ```
 
 ## Limitations
 
-- The data is a small synthetic program held in memory. A real deployment would read the same shapes from a PLM/QMS database.
+- Synthetic data and simplified physics. Not flight software; the autonomy policy is illustrative.
+- The answer checks catch invented ids and numbers, not a wrong argument built from right numbers. That is why the decision itself is rendered from the policy, not from the model.
 - The rate limiter is per server instance and best-effort.
-- Answers are drafts for engineering review. The agent reads records; it does not change them. What-if results are simulations and are labelled as such.
-- Flight Mode is a simulation on synthetic data, with simplified physics. It is not flight software, and the autonomy policy is illustrative.
-- Voice input uses the browser's speech recognition (Chrome, Edge, Safari) and is hidden elsewhere.
+- Voice input (Mission Control) uses the browser's speech recognition and is hidden where unsupported.
 
 ## License
 

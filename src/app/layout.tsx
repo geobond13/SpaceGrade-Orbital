@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SpaceGrade Agent",
-  description: "A Nemotron agent on Nebius Token Factory that answers aerospace hardware questions with cited program records.",
+  title: "SpaceGrade Flight Ops",
+  description: "A ground autonomy agent (NVIDIA Nemotron on Nebius) that uses a spacecraft's build record to decide what it can safely do in orbit, with a deterministic autonomy policy.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

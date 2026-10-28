@@ -7,7 +7,7 @@ import type { Decision } from '@/lib/flight/autonomy'
 import { useWidth } from './use-width'
 import { fmtT } from './telemetry-strips'
 
-const ROW = { axis: 14, passes: 34, sched: 56, h: 92 }
+const ROW = { axis: 14, passes: 34, sched: 56, h: 100 }
 
 /** Operations timeline: eclipses, ground passes, payload sessions, FDIR events, decision deadlines, and the gap with no operator. */
 export function OrbitTimeline({ scenario, t, fired, decisions, actions }: {
@@ -22,7 +22,9 @@ export function OrbitTimeline({ scenario, t, fired, decisions, actions }: {
   const x = (m: number) => 8 + ((Math.min(end, Math.max(start, m)) - start) / (end - start)) * (width - 16)
   const firstEvent = fired[0]
   const contact = nextContact(scenario, firstEvent?.t ?? t)
-  const deadline = decisions.find((d) => d.deadline !== undefined && d.kind !== 'PROPULSION_PROCEDURE')?.deadline
+  const timed = decisions.find((d) => d.deadline !== undefined && d.kind !== 'PROPULSION_PROCEDURE')
+  const deadline = timed?.deadline
+  const specDeadline = timed?.timing?.specDeadline
   const ticks: number[] = []
   const step = (end - start) > 200 ? 30 : 15
   for (let m = Math.ceil(start / step) * step; m <= end; m += step) ticks.push(m)
@@ -31,7 +33,7 @@ export function OrbitTimeline({ scenario, t, fired, decisions, actions }: {
     <section aria-label="Operations timeline" className="px-3 py-2">
       <div className="mb-1 flex items-baseline gap-3">
         <h2 className="panel-title">Operations timeline</h2>
-        <span className="flex flex-wrap gap-x-3 font-mono text-[0.6rem] text-muted">
+        <span className="flex flex-wrap gap-x-3 font-mono text-[0.68rem] text-muted">
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-ok/70" />operator pass</span>
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-super/70" />scheduled activity</span>
           <span className="flex items-center gap-1"><span className="inline-block h-2 w-3 rounded-sm bg-bad/25 ring-1 ring-bad/50" />no operator reachable</span>
@@ -82,10 +84,16 @@ export function OrbitTimeline({ scenario, t, fired, decisions, actions }: {
               <text x={x(m.t) - 3} y={ROW.sched + 14} fontSize={8} textAnchor="end" fill="var(--bad)">{m.label}</text>
             </g>
           ))}
+          {specDeadline !== undefined && (
+            <g>
+              <line x1={x(specDeadline)} x2={x(specDeadline)} y1={ROW.axis} y2={ROW.h - 4} stroke="var(--muted)" strokeWidth={1} strokeDasharray="2 3" />
+              <text x={x(specDeadline) + 3} y={ROW.sched + 24} fontSize={9} fill="var(--muted)">spec-sheet deadline {fmtT(specDeadline)}</text>
+            </g>
+          )}
           {deadline !== undefined && (
             <g>
               <line x1={x(deadline)} x2={x(deadline)} y1={ROW.axis} y2={ROW.h - 4} stroke="var(--warn)" strokeWidth={1.5} strokeDasharray="4 2" />
-              <text x={x(deadline) + 3} y={ROW.sched + 14} fontSize={8} fill="var(--warn)">decision deadline {fmtT(deadline)}</text>
+              <text x={x(deadline) - 3} y={ROW.sched + 14} fontSize={9} textAnchor="end" fill="var(--warn)">{specDeadline !== undefined ? 'as-built deadline' : 'decision deadline'} {fmtT(deadline)}</text>
             </g>
           )}
           {fired.map((e) => (
