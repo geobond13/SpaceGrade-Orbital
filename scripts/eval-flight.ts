@@ -32,7 +32,7 @@ async function main() {
     await runAgent(flightBriefing(event), (e) => {
       events.push(e)
       if (e.type === 'plan') console.log('plan:', e.steps.map((s) => s.tool).join(' → '))
-      if (e.type === 'tool_call') console.log(`  call ${e.name} ${JSON.stringify(e.args)} [${e.model.split('/')[1]}]`)
+      if (e.type === 'tool_call') console.log(`  call ${e.name} ${JSON.stringify(e.args)} [${e.model.split('/')[1] ?? e.model}]`)
       if (e.type === 'tool_result') console.log(`    → ${e.summary}`)
       if (e.type === 'decision') console.log(`  DECISION ${e.decision.kind}: ${e.decision.tier} (${e.decision.reason})`)
       if (e.type === 'notice') console.log('  notice:', e.message)

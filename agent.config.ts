@@ -10,7 +10,7 @@ export const agentConfig = {
   },
   caps: {
     maxRounds: 8, // tool-calling rounds per run
-    maxTokensPerRun: 60_000, // prompt + completion, all calls in one run
+    maxTokensPerRun: 90_000, // prompt + completion, all calls in one run
     runsPerIpPerHour: 10, // public demo rate limit
   },
   // USD per 1M tokens (Token Factory list prices, October 2026), used for

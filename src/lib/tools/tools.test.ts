@@ -61,7 +61,7 @@ describe('tools', () => {
     const all = new Set([...db.parts, ...db.requirements, ...db.tests, ...db.nonconformances, ...db.suppliers, ...db.quotes].map((x) => x.id))
     for (const t of TOOLS) {
       const args = t.name === 'compare_suppliers' ? { part: 'P-PROP-03' } : t.name === 'draft_document' ? { kind: 'trade_study', part: 'P-PROP-03' } : {}
-      for (const c of t.run(args).citations) expect(all.has(c.id)).toBe(true)
+      for (const c of runTool(t.name, args).citations) expect(all.has(c.id)).toBe(true)
     }
   })
 

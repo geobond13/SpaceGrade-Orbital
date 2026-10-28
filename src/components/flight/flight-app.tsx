@@ -151,6 +151,13 @@ export function FlightApp() {
   }
 
   function openRecord(id: string) {
+    // Public sources open in a new tab; the latest run's citation wins (ids are numbered per search).
+    if (id.startsWith('WEB-')) {
+      const url = [...runs].reverse().flatMap((r) => r.events.flatMap((e) => (e.type === 'tool_result' || e.type === 'answer' ? e.citations : [])))
+        .find((c) => c.id === id && c.url)?.url
+      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+      return
+    }
     setRecord(id)
     const ch = channelById(id)
     const parts = ch ? [ch.channel.partId] : partsForRecord(id)

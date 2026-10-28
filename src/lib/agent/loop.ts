@@ -5,7 +5,7 @@
 import type OpenAI from 'openai'
 import { agentConfig, type ModelRole } from '../../../agent.config'
 import { costUsd, modelFor, nebius } from '@/lib/nebius'
-import { runTool, specsFor, TOOLS, type Citation, type ToolDef } from '@/lib/tools'
+import { runToolAsync, specsFor, TOOLS, type Citation, type ToolDef } from '@/lib/tools'
 import type { AgentEvent, PlanStep, UsageInfo } from './events'
 import { answerSystem, DOCUMENT_ADDENDUM, executorSystem, plannerSystem, PROGRAM_MODE, type AgentMode } from './prompts'
 import { extractTag, validateCitations } from './citations'
@@ -38,6 +38,7 @@ const LATEX: [RegExp, string][] = [
 export function cleanAnswer(s: string, toolLabels: Record<string, string> = {}): string {
   let out = LATEX.reduce((t, [re, to]) => t.replace(re, to), s)
   out = out.replace(/\$([^$\n]{1,80})\$/g, '$1').replace(/【[^】]*】/g, '').replace(/\[\^?\d+\]/g, '')
+  out = out.replace(/\bweb-(\d{1,2})\b/gi, 'WEB-$1')
   for (const [name, label] of Object.entries(toolLabels)) out = out.replace(new RegExp(`\`?${name}\`?(?:\\s+(?:tool|call|result)s?)?`, 'g'), label)
   return out
 }
@@ -91,6 +92,16 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
   const messages: Msg[] = [{ role: 'system', content: '' }, { role: 'user', content: question }]
   const cache = new Map<string, string>()
   const called: string[] = []
+  // Server-run calls: shown in the trace and given to the answer, but kept out of the router's context and plan.
+  for (const [i, p] of (mode.preload ?? []).entries()) {
+    const callId = `preload-${i}`
+    emit({ type: 'tool_call', callId, name: p.tool.name, args: p.args, model: 'server', round: 0 })
+    const started = Date.now()
+    const result = await runToolAsync(p.tool.name, p.args, { tools: [p.tool], ctx })
+    for (const c of result.citations) if (!seen.has(c.id)) seen.set(c.id, c)
+    toolLog.push({ name: p.tool.name, args: p.args, data: result.data })
+    emit({ type: 'tool_result', callId, name: p.tool.name, summary: result.summary, citations: result.citations, ms: Date.now() - started })
+  }
   const proposed = new Set<string>()
   for (let round = 1; round <= agentConfig.caps.maxRounds; round++) {
     const done = planProgress(plan, called)
@@ -130,7 +141,7 @@ export async function runAgent(question: string, emit: Emit, signal?: AbortSigna
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: blocked }) })
         continue
       }
-      const result = runTool(call.function.name, call.function.arguments, { tools: mode.tools, ctx })
+      const result = await runToolAsync(call.function.name, call.function.arguments, { tools: mode.tools, ctx })
       // Proposing the same action twice would use up a plan step meant for a different one.
       if (result.decision && proposed.has(result.decision.kind)) {
         const msg = `${result.decision.kind} was already proposed; propose the different action this step plans`

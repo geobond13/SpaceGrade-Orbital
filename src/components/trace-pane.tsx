@@ -13,6 +13,7 @@ function Stamp({ run, i }: { run: Run; i: number }) {
 }
 
 function ModelTag({ model }: { model: string }) {
+  if (model === 'server') return <span className="rounded bg-sunken px-1.5 py-px font-mono text-[0.68rem] text-muted">Server</span>
   const nano = /nano/i.test(model)
   return (
     <span className={`rounded px-1.5 py-px font-mono text-[0.68rem] ${nano ? 'bg-nano-soft text-nano' : 'bg-super-soft text-super'}`}>
@@ -118,7 +119,7 @@ export function TracePane({ run, onOpenRecord, emptyHint }: { run?: Run; onOpenR
                   <div className={`min-w-0 flex-1 rounded-md border bg-surface px-2.5 py-2 ${result ? 'border-line' : 'border-accent/60 shadow-[0_0_12px_-4px_var(--accent)]'}`}>
                   <div className="flex items-center gap-2">
                     <code className="font-mono text-[0.78rem] font-semibold text-accent">{e.name}</code>
-                    <span className="text-[0.68rem] text-faint">round {e.round} · chosen by</span>
+                    <span className="text-[0.68rem] text-faint">{e.round === 0 ? 'before planning · run by' : `round ${e.round} · chosen by`}</span>
                     <ModelTag model={e.model} />
                     {result && <span className="ml-auto font-mono text-[0.68rem] text-faint">{result.ms} ms</span>}
                   </div>
